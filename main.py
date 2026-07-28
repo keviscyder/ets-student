@@ -6,6 +6,8 @@ import time
 from datetime import datetime, timezone
 
 import streamlit as st
+import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
 
 from utils.db import get_client
 from utils.storage import upload_image
@@ -116,16 +118,45 @@ elif st.session_state.step == "taking_test":
     submission = st.session_state.submission
     questions = st.session_state.test_questions
 
+    # Serveris tikrina laiką tik kas 10s (ne kas sekundę) - žymiai mažiau
+    # apkrauna serverį, kai daug mokinių laiko testą tuo pačiu metu.
+    st_autorefresh(interval=10_000, key="exam_timer_refresh")
+
     started_at = datetime.fromisoformat(submission["started_at"])
-    deadline = started_at.timestamp() + assignment["duration_minutes"] * 60
-    remaining = deadline - time.time()
+    deadline_ts = started_at.timestamp() + assignment["duration_minutes"] * 60
+    remaining = deadline_ts - time.time()
 
     if remaining <= 0:
         st.session_state.step = "submitted"
         st.rerun()
 
-    mins, secs = divmod(max(0, int(remaining)), 60)
-    st.info(f"⏱️ Liko laiko: {mins:02d}:{secs:02d}")
+    # Vizualus laikmatis skaičiuojamas naršyklėje (JavaScript) - neapkrauna
+    # serverio kas sekundę, tik parodo tikslų atskaitymą tarp serverio patikrinimų.
+    components.html(
+        f"""
+        <div id="timer" style="font-size:20px; font-weight:600; font-family:sans-serif; color:#333;">
+          ⏱️ Liko laiko: --:--
+        </div>
+        <script>
+          const deadline = {deadline_ts * 1000};
+          function tick() {{
+            const remainingMs = deadline - Date.now();
+            const el = document.getElementById('timer');
+            if (remainingMs <= 0) {{
+              el.innerText = "⏱️ Laikas baigėsi";
+              return;
+            }}
+            const totalSec = Math.floor(remainingMs / 1000);
+            const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+            const s = (totalSec % 60).toString().padStart(2, '0');
+            el.innerText = "⏱️ Liko laiko: " + m + ":" + s;
+          }}
+          tick();
+          setInterval(tick, 1000);
+        </script>
+        """,
+        height=40,
+    )
 
     st.subheader(assignment["tests"]["title"])
 
@@ -173,9 +204,6 @@ elif st.session_state.step == "taking_test":
         mark_submission_submitted(supabase, submission["id"])
         st.session_state.step = "submitted"
         st.rerun()
-
-    time.sleep(1)
-    st.rerun()
 
 # === ŽINGSNIS 5: Pateikta ===
 elif st.session_state.step == "submitted":
