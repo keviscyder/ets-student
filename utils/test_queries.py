@@ -1,8 +1,15 @@
 """
 Query helper'iai mokinio testavimo srautui (be auth, per session_code).
 """
+import re
 from datetime import datetime, timezone
 from supabase import Client
+
+
+def _normalize_name(name: str) -> str:
+    name = name.replace("\xa0", " ").replace("\t", " ")
+    name = re.sub(r"\s+", " ", name)
+    return name.strip()
 
 
 def get_all_classes(supabase: Client):
@@ -15,7 +22,7 @@ def find_student_in_class(supabase: Client, class_id: str, full_name: str):
         supabase.table("students")
         .select("id, name")
         .eq("class_id", class_id)
-        .ilike("name", full_name.strip())
+        .ilike("name", _normalize_name(full_name))
         .execute()
     )
     return res.data[0] if res.data else None
