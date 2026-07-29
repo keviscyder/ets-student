@@ -22,7 +22,7 @@ from utils.test_queries import (
     mark_submission_submitted,
 )
 
-st.set_page_config(page_title="ETS — Testavimas", page_icon="✍️", layout="centered")
+st.set_page_config(page_title="ETS — Testavimas", page_icon="", layout="centered")
 
 supabase = get_client()
 
@@ -39,7 +39,7 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-st.title("✍️ E-testavimas")
+st.title(" E-testavimas")
 
 # === ŽINGSNIS 1: Klasės pasirinkimas ===
 if st.session_state.step == "select_class":
@@ -207,4 +207,4 @@ elif st.session_state.step == "taking_test":
 
 # === ŽINGSNIS 5: Pateikta ===
 elif st.session_state.step == "submitted":
-    st.success("🎉 Testas pateiktas! Rezultatai bus perduoti mokytojui.")
+    st.success("Testas pateiktas! Rezultatai bus perduoti mokytojui.")
