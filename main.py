@@ -3,6 +3,7 @@ ETS - Mokinio testavimo langas.
 Paleidimas: streamlit run student_app/main.py
 """
 import time
+import random
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -112,6 +113,14 @@ elif st.session_state.step == "enter_code":
                 st.session_state.step = "taking_test"
                 st.rerun()
 
+def _shuffled_options(options, seed_key):
+    """Sumaišo variantus deterministiškai - ta pati tvarka per visą bandymą,
+    bet skirtinga kiekvienam mokiniui/klausimui."""
+    rnd = random.Random(seed_key)
+    shuffled = options.copy()
+    rnd.shuffle(shuffled)
+    return shuffled
+
 # === ŽINGSNIS 4: Testo atlikimas ===
 elif st.session_state.step == "taking_test":
     assignment = st.session_state.assignment
@@ -169,8 +178,10 @@ elif st.session_state.step == "taking_test":
             st.image(q["prompt_image_url"], width=350)
 
         if q["type"] == "mcq":
+            seed_key = f"{submission['id']}_{tq['id']}"
+            shuffled_options = _shuffled_options(q["options"], seed_key)
             answers[tq["id"]] = st.radio(
-                "Pasirink atsakymą", q["options"], key=f"ans_{tq['id']}", index=None
+                "Pasirink atsakymą", shuffled_options, key=f"ans_{tq['id']}", index=None
             )
         elif q["type"] == "short_answer":
             answers[tq["id"]] = st.text_input("Atsakymas", key=f"ans_{tq['id']}")
