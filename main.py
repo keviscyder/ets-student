@@ -11,7 +11,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
-from utils.db import get_client
+from utils.db import get_client, set_access_token
 from utils.storage import upload_image
 from utils.grading import auto_grade
 from utils.test_queries import (
@@ -24,7 +24,6 @@ from utils.test_queries import (
     mark_submission_submitted,
 )
 
-
 st.set_page_config(
     page_title="ETS — Testavimas",
     page_icon="",
@@ -33,6 +32,24 @@ st.set_page_config(
 
 supabase = get_client()
 
+# ============================================================
+# ACCESS TOKEN (RLS) – pritaikoma iš naujo kiekvieną rerun'ą
+# ============================================================
+#
+# Streamlit iš naujo kviečia get_client() kiekvieną kartą, kai
+# perpaišomas puslapis, tad postgrest sesija (ir jos antraštės)
+# neišlieka tarp rerun'ų – tik st.session_state išlieka. Jei
+# submission jau buvo pasiektas ankstesnio rerun'o metu, jo
+# access_token vėl pritaikomas čia, kad submissions/answers
+# užklausos toliau veiktų po db/migration_003_rls_hardening.sql.
+#
+# Kol ta migracija netaikyta, submission["access_token"] tiesiog
+# neegzistuos (bus None) ir ši eilutė nieko nekeičia – senas
+# elgesys išlieka toks pat.
+
+_existing_submission = st.session_state.get("submission")
+if _existing_submission:
+    set_access_token(supabase, _existing_submission.get("access_token"))
 
 # ============================================================
 # SESIJOS BŪSENOS INICIALIZAVIMAS
@@ -49,7 +66,6 @@ for key, default in [
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
-
 
 # ============================================================
 # PAGALBINĖ FUNKCIJA
@@ -68,9 +84,7 @@ def _shuffled_options(options, seed_key):
     rnd.shuffle(shuffled)
     return shuffled
 
-
 st.title("E-testavimas")
-
 
 # ============================================================
 # ŽINGSNIS 1: KLASĖS PASIRINKIMAS
@@ -96,7 +110,6 @@ if st.session_state.step == "select_class":
         st.session_state.class_id = class_id
         st.session_state.step = "enter_name"
         st.rerun()
-
 
 # ============================================================
 # ŽINGSNIS 2: VARDAS + PAVARDĖ
@@ -139,7 +152,6 @@ elif st.session_state.step == "enter_name":
 
         st.session_state.step = "select_class"
         st.rerun()
-
 
 # ============================================================
 # ŽINGSNIS 3: SESIJOS KODAS
@@ -197,6 +209,10 @@ elif st.session_state.step == "enter_code":
                     st.session_state.student_id,
                 )
 
+                # Pritaikoma iškart, kol tas pats klientas dar
+                # gyvas šiame rerun'e (žr. pastabą failo viršuje).
+                set_access_token(supabase, submission.get("access_token"))
+
                 if submission["status"] == "submitted":
 
                     st.info(
@@ -220,7 +236,6 @@ elif st.session_state.step == "enter_code":
                 st.session_state.step = "taking_test"
 
                 st.rerun()
-
 
 # ============================================================
 # ŽINGSNIS 4: TESTO ATLIKIMAS
@@ -261,7 +276,6 @@ elif st.session_state.step == "taking_test":
 
         st.session_state.step = "submitted"
         st.rerun()
-
 
     # --------------------------------------------------------
     # VIZUALUS LAIKMATIS
@@ -324,7 +338,6 @@ elif st.session_state.step == "taking_test":
         height=40,
     )
 
-
     # --------------------------------------------------------
     # TESTO PAVADINIMAS
     # --------------------------------------------------------
@@ -333,13 +346,11 @@ elif st.session_state.step == "taking_test":
         assignment["tests"]["title"]
     )
 
-
     # --------------------------------------------------------
     # ATSAKYMAI
     # --------------------------------------------------------
 
     answers = {}
-
 
     for tq in questions:
 
@@ -351,7 +362,6 @@ elif st.session_state.step == "taking_test":
             f"**{q['prompt']}**  ({q['points']} tšk.)"
         )
 
-
         # ----------------------------------------------------
         # KLAUSIMO PAVEIKSLĖLIS
         # ----------------------------------------------------
@@ -362,7 +372,6 @@ elif st.session_state.step == "taking_test":
                 q["prompt_image_url"],
                 width=350,
             )
-
 
         # ====================================================
         # MCQ
@@ -395,7 +404,6 @@ elif st.session_state.step == "taking_test":
                 index=None,
             )
 
-
         # ====================================================
         # TRUMPAS ATSAKYMAS
         # ====================================================
@@ -406,7 +414,6 @@ elif st.session_state.step == "taking_test":
                 "Atsakymas",
                 key=f"ans_{tq['id']}",
             )
-
 
         # ====================================================
         # NUOTRAUKOS ĮKĖLIMAS
@@ -424,7 +431,6 @@ elif st.session_state.step == "taking_test":
                 key=f"ans_{tq['id']}",
             )
 
-
     # ========================================================
     # TESTO PATEIKIMAS
     # ========================================================
@@ -441,7 +447,6 @@ elif st.session_state.step == "taking_test":
             q = tq["question_bank"]
 
             ans = answers.get(tq["id"])
-
 
             # ------------------------------------------------
             # NUOTRAUKOS ATSAKYMAS
@@ -469,7 +474,6 @@ elif st.session_state.step == "taking_test":
                         "graded_by": "teacher",
                     },
                 )
-
 
             # ------------------------------------------------
             # TEKSTINIS / MCQ ATSAKYMAS
@@ -499,7 +503,6 @@ elif st.session_state.step == "taking_test":
                     },
                 )
 
-
         # ----------------------------------------------------
         # TESTAS PATEIKTAS
         # ----------------------------------------------------
@@ -512,7 +515,6 @@ elif st.session_state.step == "taking_test":
         st.session_state.step = "submitted"
 
         st.rerun()
-
 
 # ============================================================
 # ŽINGSNIS 5: PATEIKTA
