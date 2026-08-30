@@ -13,7 +13,6 @@ try:
 except ImportError:
     pass
 
-
 def get_client() -> Client:
     try:
         url = st.secrets["SUPABASE_URL"]
@@ -26,3 +25,25 @@ def get_client() -> Client:
         raise RuntimeError("Trūksta SUPABASE_URL arba SUPABASE_KEY.")
 
     return create_client(url, key)
+
+
+def set_access_token(supabase: Client, token) -> None:
+    """
+    Prideda arba pašalina 'x-access-token' antraštę tolimesnėms šio
+    kliento REST užklausoms (submissions/answers RLS – žr.
+    db/migration_003_rls_hardening_DRAFT.sql).
+
+    SVARBU: Streamlit kiekvieną rerun'ą iš naujo kviečia get_client(),
+    tad tai sukuria NAUJĄ postgrest sesiją be prieš tai nustatytų
+    antraščių. Šią funkciją reikia iškviesti iš naujo po KIEKVIENO
+    get_client() – žr. main.py, kur tai daroma iš st.session_state
+    kiekvieno rerun'o pradžioje, o ne tik submission sukūrimo metu.
+
+    Jei `token` yra None/tuščias (pvz., migracija dar netaikyta ir
+    stulpelio access_token dar nėra), antraštė tiesiog nededama –
+    veikia lygiai taip pat, kaip ir prieš šį pakeitimą.
+    """
+    if token:
+        supabase.postgrest.session.headers["x-access-token"] = str(token)
+    else:
+        supabase.postgrest.session.headers.pop("x-access-token", None)
