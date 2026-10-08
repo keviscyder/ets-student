@@ -69,6 +69,56 @@ def _shuffled_options(options, seed_key):
     return shuffled
 
 
+def _save_and_submit():
+    """
+    Išsaugo visus atsakymus ir pažymi testą pateiktu.
+
+    Kviečiama kaip mygtuko on_click callback'as: Streamlit jo
+    nepertraukia, net jei tuo metu suveikia automatinis lango
+    atnaujinimas (st_autorefresh). Atsakymai imami iš
+    st.session_state pagal valdiklių raktus.
+    """
+    submission = st.session_state.submission
+    questions = st.session_state.test_questions
+
+    for tq in questions:
+        q = tq["question_bank"]
+        ans = st.session_state.get(f"ans_{tq['id']}")
+
+        if q["type"] == "image_upload":
+            image_url = (
+                upload_image(supabase, ans, folder="answers")
+                if ans
+                else None
+            )
+            save_answer(
+                supabase,
+                submission["id"],
+                tq["id"],
+                {
+                    "image_url": image_url,
+                    "score": None,
+                    "graded_by": "teacher",
+                },
+            )
+        else:
+            text_ans = ans if ans else ""
+            score, graded_by = auto_grade(q, text_ans)
+            save_answer(
+                supabase,
+                submission["id"],
+                tq["id"],
+                {
+                    "text_answer": text_ans,
+                    "score": score,
+                    "graded_by": graded_by,
+                },
+            )
+
+    mark_submission_submitted(supabase, submission["id"])
+    st.session_state.step = "submitted"
+
+
 st.title("E-testavimas")
 
 
@@ -259,7 +309,9 @@ elif st.session_state.step == "taking_test":
 
     if remaining <= 0:
 
-        st.session_state.step = "submitted"
+        # Laikas baigėsi: išsaugom tai, ką mokinys spėjo atsakyti.
+        with st.spinner("Laikas baigėsi. Pateikiami atsakymai..."):
+            _save_and_submit()
         st.rerun()
 
 
@@ -431,87 +483,11 @@ elif st.session_state.step == "taking_test":
 
     st.divider()
 
-    if st.button(
+    st.button(
         "✅ Pateikti testą",
         type="primary",
-    ):
-
-        for tq in questions:
-
-            q = tq["question_bank"]
-
-            ans = answers.get(tq["id"])
-
-
-            # ------------------------------------------------
-            # NUOTRAUKOS ATSAKYMAS
-            # ------------------------------------------------
-
-            if q["type"] == "image_upload":
-
-                image_url = (
-                    upload_image(
-                        supabase,
-                        ans,
-                        folder="answers",
-                    )
-                    if ans
-                    else None
-                )
-
-                save_answer(
-                    supabase,
-                    submission["id"],
-                    tq["id"],
-                    {
-                        "image_url": image_url,
-                        "score": None,
-                        "graded_by": "teacher",
-                    },
-                )
-
-
-            # ------------------------------------------------
-            # TEKSTINIS / MCQ ATSAKYMAS
-            # ------------------------------------------------
-
-            else:
-
-                text_ans = (
-                    ans
-                    if ans
-                    else ""
-                )
-
-                score, graded_by = auto_grade(
-                    q,
-                    text_ans,
-                )
-
-                save_answer(
-                    supabase,
-                    submission["id"],
-                    tq["id"],
-                    {
-                        "text_answer": text_ans,
-                        "score": score,
-                        "graded_by": graded_by,
-                    },
-                )
-
-
-        # ----------------------------------------------------
-        # TESTAS PATEIKTAS
-        # ----------------------------------------------------
-
-        mark_submission_submitted(
-            supabase,
-            submission["id"],
-        )
-
-        st.session_state.step = "submitted"
-
-        st.rerun()
+        on_click=_save_and_submit,
+    )
 
 
 # ============================================================
