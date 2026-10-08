@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 
 import streamlit as st
 import streamlit.components.v1 as components
-from streamlit_autorefresh import st_autorefresh
 
 from utils.db import get_client
 from utils.storage import upload_image
@@ -24,6 +23,9 @@ from utils.test_queries import (
     mark_submission_submitted,
     get_submission,
     get_submission_results,
+    get_existing_answer_ids,
+    insert_answers,
+    update_answer,
 )
 
 
@@ -90,51 +92,64 @@ def _save_and_submit():
     """
     Išsaugo visus atsakymus ir pažymi testą pateiktu.
 
-    Kviečiama kaip mygtuko on_click callback'as: Streamlit jo
-    nepertraukia, net jei tuo metu suveikia automatinis lango
-    atnaujinimas (st_autorefresh). Atsakymai imami iš
-    st.session_state pagal valdiklių raktus.
+    Kviečiama kaip mygtuko on_click callback'as. Atsakymai imami iš
+    st.session_state pagal valdiklių raktus. Duomenų bazei daromos tik
+    kelios užklausos (ne po dvi kiekvienam klausimui), todėl veikia
+    greitai net su daug klausimų ir daug mokinių vienu metu.
     """
+    # Apsauga nuo pakartotinio paspaudimo.
+    if st.session_state.get("step") == "submitted":
+        return
+
     submission = st.session_state.submission
     questions = st.session_state.test_questions
 
+    existing = get_existing_answer_ids(supabase, submission["id"])
+    to_insert = []
+
     for tq in questions:
         q = tq["question_bank"]
-        ans = st.session_state.get(f"ans_{tq['id']}")
+        key = f"ans_{tq['id']}"
+        ans = st.session_state.get(key)
 
         if q["type"] == "image_upload":
-            image_url = (
-                upload_image(supabase, ans, folder="answers")
-                if ans
-                else None
-            )
-            save_answer(
-                supabase,
-                submission["id"],
-                tq["id"],
-                {
-                    "image_url": image_url,
-                    "score": None,
-                    "graded_by": "teacher",
-                },
-            )
+            # Jau įkeltos nuotraukos neperrašom tuščia reikšme.
+            if tq["id"] in existing and not ans:
+                continue
+            data = {
+                "text_answer": None,
+                "image_url": (
+                    upload_image(supabase, ans, folder="answers") if ans else None
+                ),
+                "score": None,
+                "graded_by": "teacher",
+            }
         else:
+            # Jei šiame įrenginyje klausimas net nebuvo rodytas,
+            # neperrašom anksčiau išsaugoto atsakymo tuščiu.
+            if tq["id"] in existing and key not in st.session_state:
+                continue
             text_ans = ans if ans else ""
             score, graded_by = auto_grade(q, text_ans)
-            save_answer(
-                supabase,
-                submission["id"],
-                tq["id"],
-                {
-                    "text_answer": text_ans,
-                    "score": score,
-                    "graded_by": graded_by,
-                },
-            )
+            data = {
+                "text_answer": text_ans,
+                "image_url": None,
+                "score": score,
+                "graded_by": graded_by,
+            }
 
+        if tq["id"] in existing:
+            update_answer(supabase, existing[tq["id"]], data)
+        else:
+            to_insert.append({
+                **data,
+                "submission_id": submission["id"],
+                "test_question_id": tq["id"],
+            })
+
+    insert_answers(supabase, to_insert)
     mark_submission_submitted(supabase, submission["id"])
     st.session_state.step = "submitted"
-
 
 st.title("E-testavimas")
 
@@ -321,14 +336,12 @@ elif st.session_state.step == "taking_test":
     questions = st.session_state.test_questions
 
     # --------------------------------------------------------
-    # AUTOMATINIS SERVERIO LAIKO PATIKRINIMAS
-    # Kas 10 sekundžių atnaujinamas Streamlit langas.
+    # LAIKO PATIKRINIMAS
+    # Serveris laiką tikrina prie kiekvieno mokinio veiksmo.
+    # Periodinio viso lango perkrovimo nebėra: jis apkraudavo
+    # serverį ir praryja "Pateikti" paspaudimus. Pasibaigus laikui
+    # naršyklės laikmatis pats paspaudžia "Pateikti testą".
     # --------------------------------------------------------
-
-    st_autorefresh(
-        interval=10_000,
-        key="exam_timer_refresh",
-    )
 
     started_at = datetime.fromisoformat(
         submission["started_at"]
@@ -383,7 +396,20 @@ elif st.session_state.step == "taking_test":
 
             if (remainingMs <= 0) {{
 
-                el.innerText = "⏱️ Laikas baigėsi";
+                el.innerText = "⏱️ Laikas baigėsi. Pateikiama...";
+
+                // Automatiškai paspaudžiam "Pateikti testą" (vieną kartą).
+                if (!window.__autoSubmitted) {{
+                    try {{
+                        const btn = Array.from(
+                            window.parent.document.querySelectorAll('button')
+                        ).find(b => b.innerText.includes('Pateikti testą'));
+                        if (btn) {{
+                            window.__autoSubmitted = true;
+                            btn.click();
+                        }}
+                    }} catch (e) {{}}
+                }}
 
                 return;
             }}
