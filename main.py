@@ -79,23 +79,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Senas nuorodas automatiškai nukreipiam į "?embed=true" versiją:
-# joje Streamlit Cloud nerodo įrankių juostos ir autoriaus informacijos.
-components.html(
-    """
-    <script>
-    try {
-        const u = new URL(window.top.location.href);
-        if (u.searchParams.get("embed") !== "true") {
-            u.searchParams.set("embed", "true");
-            window.top.location.replace(u.toString());
-        }
-    } catch (e) {}
-    </script>
-    """,
-    height=0,
-)
-
 supabase = get_client()
 
 
