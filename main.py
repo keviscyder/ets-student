@@ -35,6 +35,67 @@ st.set_page_config(
     layout="centered",
 )
 
+
+# ============================================================
+# ŠVARUS VAIZDAS MOKINIAMS
+# Paslepiam Streamlit įrankių juostą ir meniu, o vietoj paslėpto
+# Streamlit krovimo ženklo rodom savo krovimo juostą viršuje.
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+    header[data-testid="stHeader"],
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    #MainMenu,
+    footer {
+        display: none !important;
+    }
+    .block-container {
+        padding-top: 2rem;
+    }
+    /* Krovimo juosta: rodoma, kol programa apdoroja veiksmą. */
+    .stApp:has([data-stale="true"])::before,
+    [data-testid="stApp"]:has([data-stale="true"])::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        z-index: 999999;
+        background: linear-gradient(90deg, transparent, #ff4b4b, transparent);
+        background-size: 40% 100%;
+        background-repeat: no-repeat;
+        animation: ets-loading 1s linear infinite;
+    }
+    @keyframes ets-loading {
+        from { background-position: -40% 0; }
+        to   { background-position: 140% 0; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Senas nuorodas automatiškai nukreipiam į "?embed=true" versiją:
+# joje Streamlit Cloud nerodo įrankių juostos ir autoriaus informacijos.
+components.html(
+    """
+    <script>
+    try {
+        const u = new URL(window.top.location.href);
+        if (u.searchParams.get("embed") !== "true") {
+            u.searchParams.set("embed", "true");
+            window.top.location.replace(u.toString());
+        }
+    } catch (e) {}
+    </script>
+    """,
+    height=0,
+)
+
 supabase = get_client()
 
 
@@ -85,7 +146,16 @@ def _reset_to_start():
         "assignment", "submission", "test_questions",
     ]:
         st.session_state[key] = None
+    st.session_state.submit_requested = False
     st.session_state.step = "select_class"
+
+
+def _request_submit():
+    """Mygtuko callback'as: tik pažymi, kad reikia pateikti testą.
+    Pats saugojimas vyksta puslapyje, kad mokinys matytų užrašą
+    "Pateikiama...". Žymė išlieka sesijoje, todėl net jei veiksmas
+    nutrūktų, kitas perkrovimas pateikimą užbaigs."""
+    st.session_state.submit_requested = True
 
 
 def _save_and_submit():
@@ -239,90 +309,93 @@ elif st.session_state.step == "enter_code":
 
     if st.button("Pradėti testą", type="primary") and code:
 
-        assignment = get_assignment_by_code(
-            supabase,
-            code,
-            st.session_state.class_id,
-        )
+        with st.spinner("Kraunamas testas..."):
 
-        if not assignment:
-
-            st.error(
-                "Kodas neteisingas arba neatitinka tavo klasės."
-            )
-
-        else:
-
-            existing = get_submission(
+            assignment = get_assignment_by_code(
                 supabase,
-                assignment["id"],
-                st.session_state.student_id,
+                code,
+                st.session_state.class_id,
             )
 
-            if existing and existing["status"] == "submitted":
+            if not assignment:
 
-                if assignment.get("results_released"):
-
-                    st.session_state.assignment = assignment
-                    st.session_state.submission = existing
-                    st.session_state.step = "results"
-                    st.rerun()
-
-                st.info(
-                    "Tu jau atlikai šį testą. Rezultatus pamatysi, "
-                    "kai mokytojas juos paskelbs."
+                st.error(
+                    "Kodas neteisingas arba neatitinka tavo klasės."
                 )
-                st.stop()
-
-            now = datetime.now(timezone.utc)
-
-            opens = datetime.fromisoformat(
-                assignment["opens_at"]
-            )
-
-            closes = datetime.fromisoformat(
-                assignment["closes_at"]
-            )
-
-            if now < opens:
-
-                st.warning("Testas dar neprasidėjo.")
-
-            elif now > closes:
-
-                st.error("Testo laikas jau pasibaigęs.")
 
             else:
 
-                submission = get_or_create_submission(
+                existing = get_submission(
                     supabase,
                     assignment["id"],
                     st.session_state.student_id,
                 )
 
-                if submission["status"] == "submitted":
+                if existing and existing["status"] == "submitted":
+
+                    if assignment.get("results_released"):
+
+                        st.session_state.assignment = assignment
+                        st.session_state.submission = existing
+                        st.session_state.step = "results"
+                        st.rerun()
 
                     st.info(
-                        "Tu jau atlikai šį testą. "
-                        "Rezultatai perduoti mokytojui."
+                        "Tu jau atlikai šį testą. Rezultatus pamatysi, "
+                        "kai mokytojas juos paskelbs."
                     )
-
                     st.stop()
 
-                st.session_state.assignment = assignment
+                now = datetime.now(timezone.utc)
 
-                st.session_state.submission = submission
-
-                st.session_state.test_questions = (
-                    get_test_questions_for_student(
-                        supabase,
-                        assignment["test_id"],
-                    )
+                opens = datetime.fromisoformat(
+                    assignment["opens_at"]
                 )
 
-                st.session_state.step = "taking_test"
+                closes = datetime.fromisoformat(
+                    assignment["closes_at"]
+                )
 
-                st.rerun()
+                if now < opens:
+
+                    st.warning("Testas dar neprasidėjo.")
+
+                elif now > closes:
+
+                    st.error("Testo laikas jau pasibaigęs.")
+
+                else:
+
+                    submission = get_or_create_submission(
+                        supabase,
+                        assignment["id"],
+                        st.session_state.student_id,
+                    )
+
+                    if submission["status"] == "submitted":
+
+                        st.info(
+                            "Tu jau atlikai šį testą. "
+                            "Rezultatai perduoti mokytojui."
+                        )
+
+                        st.stop()
+
+                    st.session_state.assignment = assignment
+
+                    st.session_state.submission = submission
+
+                    st.session_state.test_questions = (
+                        get_test_questions_for_student(
+                            supabase,
+                            assignment["test_id"],
+                        )
+                    )
+
+                    st.session_state.submit_requested = False
+                    st.session_state.step = "taking_test"
+
+                    st.rerun()
 
 
 # ============================================================
@@ -334,6 +407,16 @@ elif st.session_state.step == "taking_test":
     assignment = st.session_state.assignment
     submission = st.session_state.submission
     questions = st.session_state.test_questions
+
+    # --------------------------------------------------------
+    # PATEIKIMAS (paspaudus mygtuką)
+    # --------------------------------------------------------
+
+    if st.session_state.get("submit_requested"):
+        with st.spinner("Pateikiama... Neuždaryk lango."):
+            _save_and_submit()
+        st.session_state.submit_requested = False
+        st.rerun()
 
     # --------------------------------------------------------
     # LAIKO PATIKRINIMAS
@@ -550,7 +633,7 @@ elif st.session_state.step == "taking_test":
     st.button(
         "✅ Pateikti testą",
         type="primary",
-        on_click=_save_and_submit,
+        on_click=_request_submit,
     )
 
 
