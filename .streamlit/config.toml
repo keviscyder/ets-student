@@ -1,0 +1,7 @@
+[client]
+# "viewer" režimas: Streamlit meniu kodas, veikiantis ir senose naršyklėse.
+toolbarMode = "viewer"
+
+[browser]
+# Nesiunčiam naudojimo statistikos į Streamlit.
+gatherUsageStats = false
