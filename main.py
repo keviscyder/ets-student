@@ -148,7 +148,7 @@ elif st.session_state.step == "enter_name":
 elif st.session_state.step == "enter_code":
 
     st.write(
-        f"Sveikas, **{st.session_state.student_name}**!"
+        f"Labas, **{st.session_state.student_name}**!"
     )
 
     code = st.text_input(
