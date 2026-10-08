@@ -127,6 +127,33 @@ def save_answer(supabase: Client, submission_id: str, test_question_id: str, ans
     )
 
 
+def get_existing_answer_ids(supabase: Client, submission_id: str) -> dict:
+    """{test_question_id: answer_id} jau išsaugotiems atsakymams (viena užklausa)."""
+    res = (
+        supabase.table("answers")
+        .select("id, test_question_id")
+        .eq("submission_id", submission_id)
+        .execute()
+    )
+    return {r["test_question_id"]: r["id"] for r in (res.data or [])}
+
+
+def insert_answers(supabase: Client, rows: list[dict]):
+    """Įrašo kelis atsakymus viena užklausa."""
+    if not rows:
+        return None
+    return supabase.table("answers").insert(rows).execute()
+
+
+def update_answer(supabase: Client, answer_id: str, answer_data: dict):
+    return (
+        supabase.table("answers")
+        .update(answer_data)
+        .eq("id", answer_id)
+        .execute()
+    )
+
+
 def mark_submission_submitted(supabase: Client, submission_id: str):
     return (
         supabase.table("submissions")
