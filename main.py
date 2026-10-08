@@ -22,6 +22,8 @@ from utils.test_queries import (
     get_test_questions_for_student,
     save_answer,
     mark_submission_submitted,
+    get_submission,
+    get_submission_results,
 )
 
 
@@ -67,6 +69,21 @@ def _shuffled_options(options, seed_key):
     shuffled = options.copy()
     rnd.shuffle(shuffled)
     return shuffled
+
+
+def _fmt_points(x):
+    """1.0 -> '1', 1.5 -> '1.5'."""
+    x = float(x or 0)
+    return str(int(x)) if x.is_integer() else f"{x:g}"
+
+
+def _reset_to_start():
+    for key in [
+        "class_id", "student_id", "student_name",
+        "assignment", "submission", "test_questions",
+    ]:
+        st.session_state[key] = None
+    st.session_state.step = "select_class"
 
 
 def _save_and_submit():
@@ -220,6 +237,27 @@ elif st.session_state.step == "enter_code":
             )
 
         else:
+
+            existing = get_submission(
+                supabase,
+                assignment["id"],
+                st.session_state.student_id,
+            )
+
+            if existing and existing["status"] == "submitted":
+
+                if assignment.get("results_released"):
+
+                    st.session_state.assignment = assignment
+                    st.session_state.submission = existing
+                    st.session_state.step = "results"
+                    st.rerun()
+
+                st.info(
+                    "Tu jau atlikai šį testą. Rezultatus pamatysi, "
+                    "kai mokytojas juos paskelbs."
+                )
+                st.stop()
 
             now = datetime.now(timezone.utc)
 
@@ -499,3 +537,84 @@ elif st.session_state.step == "submitted":
     st.success(
         "Testas pateiktas! Rezultatai bus perduoti mokytojui."
     )
+
+    if st.button("Baigti"):
+        _reset_to_start()
+        st.rerun()
+
+
+# ============================================================
+# ŽINGSNIS 6: REZULTATAI (kai mokytojas paskelbia)
+# ============================================================
+
+elif st.session_state.step == "results":
+
+    assignment = st.session_state.assignment
+    submission = st.session_state.submission
+
+    st.subheader(assignment["tests"]["title"])
+
+    rows = get_submission_results(supabase, submission["id"])
+
+    total = sum(float(r["score"] or 0) for r in rows)
+    max_total = sum(
+        float(r["test_questions"]["question_bank"]["points"] or 0) for r in rows
+    )
+    pending = sum(1 for r in rows if r["score"] is None)
+    percent = round(100 * total / max_total) if max_total else 0
+
+    st.metric(
+        "Tavo rezultatas",
+        f"{_fmt_points(total)} / {_fmt_points(max_total)} tšk.",
+        f"{percent} %",
+        delta_color="off",
+    )
+
+    if pending:
+        st.info(
+            f"Dar neįvertinta klausimų: {pending}. "
+            "Galutinis balas gali pasikeisti."
+        )
+
+    for i, r in enumerate(rows, start=1):
+
+        q = r["test_questions"]["question_bank"]
+
+        st.divider()
+        st.markdown(f"**{i}. {q['prompt']}**")
+
+        if q.get("prompt_image_url"):
+            st.image(q["prompt_image_url"], width=350)
+
+        if q["type"] == "image_upload":
+            if r.get("image_url"):
+                st.image(r["image_url"], width=350, caption="Tavo sprendimas")
+            else:
+                st.caption("Sprendimas neįkeltas.")
+        else:
+            st.text(f"Tavo atsakymas: {r.get('text_answer') or '—'}")
+
+        points = float(q["points"] or 0)
+
+        if r["score"] is None:
+            st.caption(f"Laukia įvertinimo (galima gauti {_fmt_points(points)} tšk.)")
+        else:
+            score = float(r["score"])
+            if score >= points:
+                mark = "✅"
+            elif score <= 0:
+                mark = "❌"
+            else:
+                mark = "🟡"
+            st.markdown(
+                f"{mark} **{_fmt_points(score)} / {_fmt_points(points)} tšk.**"
+            )
+
+        if r.get("teacher_comment"):
+            st.caption(f"Mokytojo komentaras: {r['teacher_comment']}")
+
+    st.divider()
+
+    if st.button("Baigti", type="primary"):
+        _reset_to_start()
+        st.rerun()
