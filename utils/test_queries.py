@@ -31,12 +31,43 @@ def find_student_in_class(supabase: Client, class_id: str, full_name: str):
 def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):
     res = (
         supabase.table("assignments")
-        .select("id, test_id, class_id, opens_at, closes_at, duration_minutes, tests(title, description)")
+        .select("id, test_id, class_id, opens_at, closes_at, duration_minutes, results_released, tests(title, description)")
         .eq("session_code", session_code.strip().upper())
         .eq("class_id", class_id)
         .execute()
     )
     return res.data[0] if res.data else None
+
+
+def get_submission(supabase: Client, assignment_id: str, student_id: str):
+    """Grąžina esamą mokinio bandymą (arba None), nieko nekuria."""
+    res = (
+        supabase.table("submissions")
+        .select("*")
+        .eq("assignment_id", assignment_id)
+        .eq("student_id", student_id)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def get_submission_results(supabase: Client, submission_id: str):
+    """
+    Mokinio atsakymai su gautais balais ir mokytojo komentarais.
+    Teisingi atsakymai (answer_key) sąmoningai neimami.
+    """
+    res = (
+        supabase.table("answers")
+        .select(
+            "text_answer, image_url, score, teacher_comment, "
+            "test_questions(order_idx, question_bank(prompt, prompt_image_url, points, type))"
+        )
+        .eq("submission_id", submission_id)
+        .execute()
+    )
+    rows = res.data or []
+    rows.sort(key=lambda r: r["test_questions"]["order_idx"])
+    return rows
 
 
 def get_or_create_submission(supabase: Client, assignment_id: str, student_id: str):
