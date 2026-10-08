@@ -14,11 +14,18 @@ except ImportError:
     pass
 
 
+# Klaidų klasė StreamlitSecretNotFoundError yra tik naujesnėse Streamlit
+# versijose, todėl ją pridedam tik jei ji egzistuoja.
+_SECRET_ERRORS = (FileNotFoundError, KeyError)
+if hasattr(st.errors, "StreamlitSecretNotFoundError"):
+    _SECRET_ERRORS += (st.errors.StreamlitSecretNotFoundError,)
+
+
 def get_client() -> Client:
     try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
-    except (FileNotFoundError, KeyError, st.errors.StreamlitSecretNotFoundError):
+    except _SECRET_ERRORS:
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_KEY")
 
