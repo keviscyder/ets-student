@@ -19,6 +19,20 @@ def _best_similarity(submitted: str, accepted_variants: list[str]) -> float:
     )
 
 
+def accepted_answers(question: dict) -> list[str]:
+    """Priimtini trumpo atsakymo variantai (be rubrikos eilučių, prasidedančių #)."""
+    raw_key = question.get("answer_key") or ""
+    return [
+        _normalize(v) for v in raw_key.split("\n")
+        if v.strip() and not v.strip().startswith("#")
+    ]
+
+
+def is_open_question(question: dict) -> bool:
+    """Trumpo atsakymo klausimas be teisingų atsakymų = atviras (vertina mokytojas)."""
+    return question.get("type") == "short_answer" and not accepted_answers(question)
+
+
 def auto_grade(question: dict, submitted_answer: str):
     """
     Grąžina (score, graded_by).
@@ -36,10 +50,13 @@ def auto_grade(question: dict, submitted_answer: str):
 
     if q_type == "short_answer":
         # answer_key gali turėti kelis priimtinus variantus, kiekvienas naujoje eilutėje
-        raw_key = question.get("answer_key") or ""
-        accepted_variants = [_normalize(v) for v in raw_key.split("\n") if v.strip()]
+        # Eilutės, prasidedančios "#", yra vertinimo pastabos (rubrika), ne atsakymai.
+        accepted_variants = accepted_answers(question)
         if not accepted_variants:
-            return 0, "auto"
+            # Atviras klausimas - vertina mokytojas (tuščias atsakymas = 0 iškart)
+            if not submitted:
+                return 0, "auto"
+            return None, "teacher"
 
         if submitted in accepted_variants:
             return points, "auto"

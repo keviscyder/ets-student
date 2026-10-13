@@ -12,7 +12,7 @@ import streamlit.components.v1 as components
 
 from utils.db import get_client
 from utils.storage import upload_image
-from utils.grading import auto_grade
+from utils.grading import auto_grade, is_open_question
 from utils.test_queries import (
     get_all_classes,
     find_student_in_class,
@@ -584,10 +584,19 @@ elif st.session_state.step == "taking_test":
 
         elif q["type"] == "short_answer":
 
-            answers[tq["id"]] = st.text_input(
-                "Atsakymas",
-                key=f"ans_{tq['id']}",
-            )
+            if is_open_question(q):
+                # Atviras klausimas - mokinys rašo paaiškinimą, vertina mokytojas
+                answers[tq["id"]] = st.text_area(
+                    "Atsakymas",
+                    key=f"ans_{tq['id']}",
+                    height=130,
+                    placeholder="Parašyk atsakymą ir paaiškinimą",
+                )
+            else:
+                answers[tq["id"]] = st.text_input(
+                    "Atsakymas",
+                    key=f"ans_{tq['id']}",
+                )
 
 
         # ====================================================
