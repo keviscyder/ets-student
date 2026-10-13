@@ -12,6 +12,12 @@ import streamlit.components.v1 as components
 
 from utils.db import get_client
 from utils.storage import upload_image
+# Streamlit Cloud po atnaujinimo gali laikyti seną modulio versiją (ImportError)
+import importlib
+import utils.grading as _grading
+import utils.test_queries as _test_queries
+importlib.reload(_grading)
+importlib.reload(_test_queries)
 from utils.grading import auto_grade, is_open_question
 from utils.test_queries import (
     get_all_classes,
