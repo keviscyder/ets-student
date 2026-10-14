@@ -138,6 +138,7 @@
   window.addEventListener('message', function (ev) {
     var d = ev.data || {};
     if (d.type !== 'streamlit:render') return;
+    if (!window.__hSet && d.args && d.args.height) { window.__hSet = true; H = d.args.height; resize(); }
     var url = d.args && d.args.initial;
     // Ankstesnis (išsaugotas) lapas: užkraunam tik jei šiame lange dar nieko nerašyta.
     if (url && url !== bgUrl && strokes.length === 0 && !cleared) {

@@ -9,6 +9,6 @@ _sketch = components.declare_component(
 )
 
 
-def sketch_pad(key: str, initial_url: str | None = None):
+def sketch_pad(key: str, initial_url: str | None = None, height: int = 650):
     """Grąžina None arba {"n": skaitiklis, "data": "data:image/jpeg;base64,..."}."""
-    return _sketch(initial=initial_url, key=key, default=None)
+    return _sketch(initial=initial_url, height=height, key=key, default=None)

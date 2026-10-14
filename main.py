@@ -159,25 +159,36 @@ def _order_questions(questions, seed):
 
 def _prepare_test_state(submission, questions):
     """Pradedant (ar tęsiant) testą: sumaišo klausimus ir atkuria jau
-    išsaugotus atsakymus (pvz., jei nutrūko ryšys ar mokinys prisijungė iš naujo)."""
+    išsaugotus atsakymus, juodraščius ir sprendimų lapus
+    (pvz., jei nutrūko ryšys ar mokinys prisijungė iš naujo)."""
     saved_rows = get_saved_answers(supabase, submission["id"])
     st.session_state._answer_ids = {k: v["id"] for k, v in saved_rows.items()}
-    st.session_state._saved = {}
+    st.session_state._saved = {}        # pagrindinis atsakymas
+    st.session_state._saved_draft = {}  # juodraščio lapas
+    st.session_state._saved_final = {}  # galutinis atsakymas prie sprendimo lapo
     st.session_state._restored_img = {}
+    st.session_state._img_urls = {}
     for tq in questions:
         q = tq["question_bank"]
         row = saved_rows.get(tq["id"])
         if not row:
             continue
+        text = row.get("text_answer") or ""
         if q["type"] == "image_upload":
             if row.get("image_url"):
                 st.session_state._saved[tq["id"]] = ("img", "restored")
                 st.session_state._restored_img[tq["id"]] = row["image_url"]
+            st.session_state._saved_final[tq["id"]] = text
+            if text:
+                st.session_state[f"final_{tq['id']}"] = text
             continue
-        text = row.get("text_answer") or ""
         st.session_state._saved[tq["id"]] = text
         if text and (q["type"] != "mcq" or text in (q.get("options") or [])):
             st.session_state[f"ans_{tq['id']}"] = text
+        if row.get("image_url"):
+            st.session_state._saved_draft[tq["id"]] = ("draw", "restored")
+            st.session_state._restored_img[tq["id"]] = row["image_url"]
+            st.session_state[f"draft_on_{tq['id']}"] = True
     st.session_state._leaves = list(submission.get("leave_events") or [])
     return _order_questions(questions, submission["id"])
 
@@ -197,73 +208,94 @@ def _merge_leave_log():
     return bool(new)
 
 
-def _drawing_changed(tq_id):
-    """Ar ranka rašytas lapas pasikeitė nuo paskutinio išsaugojimo."""
-    key = f"draw_{tq_id}"
+def _pad_change(key, prev):
+    """Ar piešimo lapas (sprendimo ar juodraščio) pasikeitė.
+    Grąžina (pasikeitė, naujas_vaizdas_arba_None, nauja_žymė)."""
     if key not in st.session_state:
-        return False
-    drawing = st.session_state.get(key)
-    prev = st.session_state.get("_saved", {}).get(tq_id)
-    if drawing and drawing.get("n"):
-        return prev != ("draw", drawing.get("n"))
-    # lapas išvalytas - jei anksčiau buvo išsaugotas piešinys, ištrinam
-    return isinstance(prev, tuple) and prev[0] == "draw"
+        return False, None, prev
+    pad = st.session_state.get(key)
+    if pad and pad.get("n"):
+        mark = ("draw", pad.get("n"))
+        return prev != mark, pad.get("data"), mark
+    # lapas išvalytas - jei anksčiau buvo išsaugotas piešinys, jį pašalinam
+    was_drawing = isinstance(prev, tuple) and prev[0] == "draw"
+    return was_drawing, None, ("" if was_drawing else prev)
+
+
+def _upload_pad(data_url):
+    raw = base64.b64decode(data_url.split(",", 1)[1])
+    return upload_image(supabase, io.BytesIO(raw), folder="answers")
 
 
 def _autosave():
-    """Išsaugo pasikeitusius atsakymus ir bandymo eigą (paskutinį aktyvumą,
-    atsakytų klausimų skaičių, planšetę, išėjimus iš testo).
+    """Išsaugo pasikeitusius atsakymus, juodraščius ir bandymo eigą
+    (paskutinį aktyvumą, atsakytų klausimų skaičių, planšetę, išėjimus).
     Kviečiama prie kiekvieno mokinio veiksmo ir periodiškai."""
     if st.session_state.get("step") != "taking_test":
         return
     submission = st.session_state.submission
     questions = st.session_state.test_questions or []
     saved = st.session_state.setdefault("_saved", {})
+    saved_draft = st.session_state.setdefault("_saved_draft", {})
+    saved_final = st.session_state.setdefault("_saved_final", {})
+    img_urls = st.session_state.setdefault("_img_urls", {})
     ids = st.session_state.setdefault("_answer_ids", {})
     to_insert = []
 
     for tq in questions:
         q = tq["question_bank"]
-        key = f"ans_{tq['id']}"
-        if key not in st.session_state and f"draw_{tq['id']}" not in st.session_state:
+        tid = tq["id"]
+        upd = {}
+
+        if q["type"] == "image_upload":
+            # 1) sprendimo lapas
+            changed, data_url, mark = _pad_change(f"draw_{tid}", saved.get(tid))
+            if changed:
+                url = _upload_pad(data_url) if data_url else None
+                img_urls[tid] = url
+                upd.update({"image_url": url, "score": None, "graded_by": "teacher"})
+                saved[tid] = mark
+            # 2) arba nuotrauka
+            photo = st.session_state.get(f"ans_{tid}")
+            if photo is not None:
+                fid = getattr(photo, "file_id", None) or f"{getattr(photo, 'name', '')}_{getattr(photo, 'size', '')}"
+                if saved.get(tid) != ("img", fid):
+                    upd.update({"image_url": upload_image(supabase, photo, folder="answers"),
+                                "score": None, "graded_by": "teacher"})
+                    saved[tid] = ("img", fid)
+            # 3) galutinis atsakymas langelyje
+            fkey = f"final_{tid}"
+            if fkey in st.session_state:
+                final = st.session_state.get(fkey) or ""
+                if final != saved_final.get(tid, ""):
+                    upd.update({"text_answer": final, "score": None, "graded_by": "teacher"})
+                    saved_final[tid] = final
+            defaults = {"text_answer": None, "image_url": None, "score": None, "graded_by": "teacher"}
+        else:
+            # 1) atsakymas
+            key = f"ans_{tid}"
+            if key in st.session_state:
+                text = st.session_state.get(key) or ""
+                if not (saved.get(tid) == text or (text == "" and tid not in saved)):
+                    score, graded_by = auto_grade(q, text)
+                    upd.update({"text_answer": text, "score": score, "graded_by": graded_by})
+                    saved[tid] = text
+            # 2) juodraštis
+            changed, data_url, mark = _pad_change(f"draft_{tid}", saved_draft.get(tid))
+            if changed:
+                url = _upload_pad(data_url) if data_url else None
+                img_urls[tid] = url
+                upd["image_url"] = url
+                saved_draft[tid] = mark
+            score0, graded0 = auto_grade(q, "")
+            defaults = {"text_answer": "", "image_url": None, "score": score0, "graded_by": graded0}
+
+        if not upd:
             continue
-        ans = st.session_state.get(key)
-
-        if q["type"] == "image_upload" and _drawing_changed(tq["id"]):
-            drawing = st.session_state.get(f"draw_{tq['id']}")
-            url = None
-            if drawing and drawing.get("data"):
-                raw = base64.b64decode(drawing["data"].split(",", 1)[1])
-                url = upload_image(supabase, io.BytesIO(raw), folder="answers")
-                st.session_state.setdefault("_img_urls", {})[tq["id"]] = url
-            data = {"text_answer": None, "image_url": url, "score": None, "graded_by": "teacher"}
-            saved[tq["id"]] = ("draw", drawing.get("n")) if drawing else ""
-        elif q["type"] == "image_upload":
-            if ans is None:
-                continue
-            fid = getattr(ans, "file_id", None) or f"{getattr(ans, 'name', '')}_{getattr(ans, 'size', '')}"
-            if saved.get(tq["id"]) == ("img", fid):
-                continue
-            data = {
-                "text_answer": None,
-                "image_url": upload_image(supabase, ans, folder="answers"),
-                "score": None,
-                "graded_by": "teacher",
-            }
-            saved[tq["id"]] = ("img", fid)
-            st.session_state.setdefault("_restored_img", {}).pop(tq["id"], None)
+        if tid in ids:
+            update_answer(supabase, ids[tid], upd)
         else:
-            text = ans or ""
-            if saved.get(tq["id"]) == text or (text == "" and tq["id"] not in saved):
-                continue
-            score, graded_by = auto_grade(q, text)
-            data = {"text_answer": text, "image_url": None, "score": score, "graded_by": graded_by}
-            saved[tq["id"]] = text
-
-        if tq["id"] in ids:
-            update_answer(supabase, ids[tq["id"]], data)
-        else:
-            to_insert.append({**data, "submission_id": submission["id"], "test_question_id": tq["id"]})
+            to_insert.append({**defaults, **upd, "submission_id": submission["id"], "test_question_id": tid})
 
     if to_insert:
         res = insert_answers(supabase, to_insert)
@@ -817,6 +849,12 @@ elif st.session_state.step == "taking_test":
                 ),
             )
 
+            st.text_input(
+                "Galutinis atsakymas",
+                key=f"final_{tq['id']}",
+                placeholder="Užrašyk galutinį atsakymą, pvz. t = 35 °C",
+            )
+
             with st.expander("Arba nufotografuok sprendimą iš sąsiuvinio"):
                 answers[tq["id"]] = st.file_uploader(
                     "Įkelk sprendimo nuotrauką",
@@ -827,6 +865,23 @@ elif st.session_state.step == "taking_test":
                 ],
                 key=f"ans_{tq['id']}",
             )
+
+
+        # ====================================================
+        # JUODRAŠTIS (lapas skaičiavimams prie kiekvieno klausimo)
+        # Atidaromas tik paspaudus, kad senos planšetės neapsunktų.
+        # ====================================================
+
+        if q["type"] != "image_upload":
+            if st.toggle("✏️ Juodraštis", key=f"draft_on_{tq['id']}"):
+                sketch_pad(
+                    key=f"draft_{tq['id']}",
+                    initial_url=(
+                        st.session_state.get("_img_urls", {}).get(tq["id"])
+                        or st.session_state.get("_restored_img", {}).get(tq["id"])
+                    ),
+                    height=380,
+                )
 
 
     # ========================================================
