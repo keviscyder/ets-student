@@ -188,7 +188,6 @@ def _prepare_test_state(submission, questions):
         if row.get("image_url"):
             st.session_state._saved_draft[tq["id"]] = ("draw", "restored")
             st.session_state._restored_img[tq["id"]] = row["image_url"]
-            st.session_state[f"draft_on_{tq['id']}"] = True
     st.session_state._leaves = list(submission.get("leave_events") or [])
     return _order_questions(questions, submission["id"])
 
@@ -225,6 +224,16 @@ def _pad_change(key, prev):
 def _upload_pad(data_url):
     raw = base64.b64decode(data_url.split(",", 1)[1])
     return upload_image(supabase, io.BytesIO(raw), folder="answers")
+
+
+def _only_one_draft(open_id):
+    """Senoms planšetėms: vienu metu atidarytas tik vienas juodraštis
+    (kiti užsidaro, bet jų turinys lieka išsaugotas)."""
+    if not st.session_state.get(f"draft_on_{open_id}"):
+        return
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith("draft_on_") and k != f"draft_on_{open_id}":
+            st.session_state[k] = False
 
 
 def _current_answer(tq):
@@ -929,7 +938,8 @@ elif st.session_state.step == "taking_test":
         # ====================================================
 
         if q["type"] != "image_upload":
-            if st.toggle("✏️ Juodraštis", key=f"draft_on_{tq['id']}"):
+            if st.toggle("✏️ Juodraštis", key=f"draft_on_{tq['id']}",
+                         on_change=_only_one_draft, args=(tq["id"],)):
                 sketch_pad(
                     key=f"draft_{tq['id']}",
                     initial_url=(
