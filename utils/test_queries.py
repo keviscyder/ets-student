@@ -20,7 +20,7 @@ def find_student_in_class(supabase: Client, class_id: str, full_name: str):
     """Ieško mokinio pagal vardą/pavardę (case-insensitive) toje klasėje."""
     res = (
         supabase.table("students")
-        .select("id, name")
+        .select("id, name, pin")
         .eq("class_id", class_id)
         .ilike("name", _normalize_name(full_name))
         .execute()
@@ -158,6 +158,28 @@ def mark_submission_submitted(supabase: Client, submission_id: str):
     return (
         supabase.table("submissions")
         .update({"status": "submitted", "submitted_at": datetime.now(timezone.utc).isoformat()})
+        .eq("id", submission_id)
+        .execute()
+    )
+
+
+def get_saved_answers(supabase: Client, submission_id: str) -> dict:
+    """{test_question_id: {id, text_answer, image_url}} - jau išsaugoti atsakymai
+    (naudojama atkurti atsakymus, jei ryšys nutrūko ar mokinys prisijungė iš naujo)."""
+    res = (
+        supabase.table("answers")
+        .select("id, test_question_id, text_answer, image_url")
+        .eq("submission_id", submission_id)
+        .execute()
+    )
+    return {r["test_question_id"]: r for r in (res.data or [])}
+
+
+def update_submission_progress(supabase: Client, submission_id: str, data: dict):
+    """Atnaujina bandymo eigos informaciją (last_seen, answered_count, tablet, leave_events)."""
+    return (
+        supabase.table("submissions")
+        .update(data)
         .eq("id", submission_id)
         .execute()
     )

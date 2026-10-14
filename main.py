@@ -32,7 +32,11 @@ from utils.test_queries import (
     get_existing_answer_ids,
     insert_answers,
     update_answer,
+    get_saved_answers,
+    update_submission_progress,
 )
+import json
+import re
 
 
 from pathlib import Path
@@ -126,6 +130,137 @@ def _shuffled_options(options, seed_key):
     return shuffled
 
 
+def _client_info():
+    """Planšetės numeris ir programėlės versija iš naršyklės User-Agent
+    (programėlė prideda "ETSApp/1.4 Tablet/12")."""
+    try:
+        ua = st.context.headers.get("User-Agent", "") or ""
+    except Exception:
+        ua = ""
+    app = re.search(r"ETSApp/([\w.]+)", ua)
+    tab = re.search(r"Tablet/([\w-]+)", ua)
+    return {
+        "app": app.group(1) if app else None,
+        "tablet": tab.group(1) if tab else None,
+    }
+
+
+def _order_questions(questions, seed):
+    """Kiekvienam mokiniui klausimai kita tvarka (bet visada ta pati tam pačiam
+    mokiniui). Sprendimo nuotraukų uždaviniai paliekami gale."""
+    normal = [tq for tq in questions if tq["question_bank"]["type"] != "image_upload"]
+    photos = [tq for tq in questions if tq["question_bank"]["type"] == "image_upload"]
+    random.Random(f"order_{seed}").shuffle(normal)
+    return normal + photos
+
+
+def _prepare_test_state(submission, questions):
+    """Pradedant (ar tęsiant) testą: sumaišo klausimus ir atkuria jau
+    išsaugotus atsakymus (pvz., jei nutrūko ryšys ar mokinys prisijungė iš naujo)."""
+    saved_rows = get_saved_answers(supabase, submission["id"])
+    st.session_state._answer_ids = {k: v["id"] for k, v in saved_rows.items()}
+    st.session_state._saved = {}
+    st.session_state._restored_img = {}
+    for tq in questions:
+        q = tq["question_bank"]
+        row = saved_rows.get(tq["id"])
+        if not row:
+            continue
+        if q["type"] == "image_upload":
+            if row.get("image_url"):
+                st.session_state._saved[tq["id"]] = ("img", "restored")
+                st.session_state._restored_img[tq["id"]] = row["image_url"]
+            continue
+        text = row.get("text_answer") or ""
+        st.session_state._saved[tq["id"]] = text
+        if text and (q["type"] != "mcq" or text in (q.get("options") or [])):
+            st.session_state[f"ans_{tq['id']}"] = text
+    st.session_state._leaves = list(submission.get("leave_events") or [])
+    return _order_questions(questions, submission["id"])
+
+
+def _merge_leave_log():
+    """Prijungia naujus išėjimo iš testo įvykius (iš naršyklės) prie išsaugotų.
+    Grąžina True, jei atsirado naujų."""
+    raw = st.session_state.get("ets_leave_log") or ""
+    try:
+        events = json.loads(raw).get("leaves", []) if raw else []
+    except Exception:
+        events = []
+    known = {e.get("out") for e in st.session_state.get("_leaves", [])}
+    new = [e for e in events if isinstance(e, dict) and e.get("out") and e.get("out") not in known]
+    if new:
+        st.session_state._leaves = st.session_state.get("_leaves", []) + new
+    return bool(new)
+
+
+def _autosave():
+    """Išsaugo pasikeitusius atsakymus ir bandymo eigą (paskutinį aktyvumą,
+    atsakytų klausimų skaičių, planšetę, išėjimus iš testo).
+    Kviečiama prie kiekvieno mokinio veiksmo ir periodiškai."""
+    if st.session_state.get("step") != "taking_test":
+        return
+    submission = st.session_state.submission
+    questions = st.session_state.test_questions or []
+    saved = st.session_state.setdefault("_saved", {})
+    ids = st.session_state.setdefault("_answer_ids", {})
+    to_insert = []
+
+    for tq in questions:
+        q = tq["question_bank"]
+        key = f"ans_{tq['id']}"
+        if key not in st.session_state:
+            continue
+        ans = st.session_state[key]
+
+        if q["type"] == "image_upload":
+            if ans is None:
+                continue
+            fid = getattr(ans, "file_id", None) or f"{getattr(ans, 'name', '')}_{getattr(ans, 'size', '')}"
+            if saved.get(tq["id"]) == ("img", fid):
+                continue
+            data = {
+                "text_answer": None,
+                "image_url": upload_image(supabase, ans, folder="answers"),
+                "score": None,
+                "graded_by": "teacher",
+            }
+            saved[tq["id"]] = ("img", fid)
+            st.session_state.setdefault("_restored_img", {}).pop(tq["id"], None)
+        else:
+            text = ans or ""
+            if saved.get(tq["id"]) == text or (text == "" and tq["id"] not in saved):
+                continue
+            score, graded_by = auto_grade(q, text)
+            data = {"text_answer": text, "image_url": None, "score": score, "graded_by": graded_by}
+            saved[tq["id"]] = text
+
+        if tq["id"] in ids:
+            update_answer(supabase, ids[tq["id"]], data)
+        else:
+            to_insert.append({**data, "submission_id": submission["id"], "test_question_id": tq["id"]})
+
+    if to_insert:
+        res = insert_answers(supabase, to_insert)
+        for r in (res.data or []) if res is not None else []:
+            ids[r["test_question_id"]] = r["id"]
+
+    progress = {
+        "last_seen": datetime.now(timezone.utc).isoformat(),
+        "answered_count": sum(1 for v in saved.values() if v not in ("", None)),
+    }
+    info = _client_info()
+    if info["tablet"] and st.session_state.get("_tablet_saved") != submission["id"]:
+        progress["tablet"] = info["tablet"]
+        st.session_state._tablet_saved = submission["id"]
+    if _merge_leave_log():
+        progress["leave_events"] = st.session_state._leaves
+    try:
+        update_submission_progress(supabase, submission["id"], progress)
+    except Exception:
+        pass
+
+
 def _fmt_points(x):
     """1.0 -> '1', 1.5 -> '1.5'."""
     x = float(x or 0)
@@ -166,54 +301,44 @@ def _save_and_submit():
     submission = st.session_state.submission
     questions = st.session_state.test_questions
 
+    # Pirma išsaugom viską, kas pasikeitė (ir nuotraukas).
+    _autosave()
+
+    # Klausimams, į kuriuos mokinys neatsakė, įrašom tuščią atsakymą,
+    # kad mokytojas matytų visus klausimus.
+    ids = st.session_state.get("_answer_ids", {})
     existing = get_existing_answer_ids(supabase, submission["id"])
     to_insert = []
-
     for tq in questions:
+        if tq["id"] in ids or tq["id"] in existing:
+            continue
         q = tq["question_bank"]
-        key = f"ans_{tq['id']}"
-        ans = st.session_state.get(key)
-
         if q["type"] == "image_upload":
-            # Jau įkeltos nuotraukos neperrašom tuščia reikšme.
-            if tq["id"] in existing and not ans:
-                continue
-            data = {
-                "text_answer": None,
-                "image_url": (
-                    upload_image(supabase, ans, folder="answers") if ans else None
-                ),
-                "score": None,
-                "graded_by": "teacher",
-            }
+            data = {"text_answer": None, "image_url": None, "score": None, "graded_by": "teacher"}
         else:
-            # Jei šiame įrenginyje klausimas net nebuvo rodytas,
-            # neperrašom anksčiau išsaugoto atsakymo tuščiu.
-            if tq["id"] in existing and key not in st.session_state:
-                continue
-            text_ans = ans if ans else ""
-            score, graded_by = auto_grade(q, text_ans)
-            data = {
-                "text_answer": text_ans,
-                "image_url": None,
-                "score": score,
-                "graded_by": graded_by,
-            }
-
-        if tq["id"] in existing:
-            update_answer(supabase, existing[tq["id"]], data)
-        else:
-            to_insert.append({
-                **data,
-                "submission_id": submission["id"],
-                "test_question_id": tq["id"],
-            })
+            score, graded_by = auto_grade(q, "")
+            data = {"text_answer": "", "image_url": None, "score": score, "graded_by": graded_by}
+        to_insert.append({**data, "submission_id": submission["id"], "test_question_id": tq["id"]})
 
     insert_answers(supabase, to_insert)
     mark_submission_submitted(supabase, submission["id"])
     st.session_state.step = "submitted"
 
 st.title("E-testavimas")
+
+_info = _client_info()
+if _info["app"] or _info["tablet"]:
+    _label = " · ".join(
+        x for x in [
+            f"Planšetė {_info['tablet']}" if _info["tablet"] else None,
+            f"v{_info['app']}" if _info["app"] else None,
+        ] if x
+    )
+    st.markdown(
+        f"""<div style="position:fixed;right:10px;bottom:6px;font-size:12px;
+        color:#888;z-index:1000;">{_label}</div>""",
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
@@ -264,7 +389,19 @@ elif st.session_state.step == "enter_name":
                 f"✅ {match['name']} — rasta klasės sąraše"
             )
 
-            if st.button("Toliau", type="primary"):
+            pin_ok = True
+            if match.get("pin"):
+                pin = st.text_input(
+                    "Tavo asmeninis kodas",
+                    type="password",
+                    max_chars=8,
+                    help="Kodą tau davė mokytojas.",
+                )
+                pin_ok = pin.strip() == str(match["pin"]).strip()
+                if pin and not pin_ok:
+                    st.error("Neteisingas asmeninis kodas.")
+
+            if st.button("Toliau", type="primary", disabled=not pin_ok):
 
                 st.session_state.student_id = match["id"]
                 st.session_state.student_name = match["name"]
@@ -377,11 +514,12 @@ elif st.session_state.step == "enter_code":
 
                     st.session_state.submission = submission
 
-                    st.session_state.test_questions = (
+                    st.session_state.test_questions = _prepare_test_state(
+                        submission,
                         get_test_questions_for_student(
                             supabase,
                             assignment["test_id"],
-                        )
+                        ),
                     )
 
                     st.session_state.submit_requested = False
@@ -409,6 +547,29 @@ elif st.session_state.step == "taking_test":
             _save_and_submit()
         st.session_state.submit_requested = False
         st.rerun()
+
+    # --------------------------------------------------------
+    # AUTOMATINIS IŠSAUGOJIMAS
+    # Kiekvienas mokinio veiksmas (atsakymo pakeitimas) iškart
+    # išsaugomas, o kas 45 s atnaujinama eiga mokytojo stebėsenai.
+    # Nutrūkus ryšiui atsakymai neprarandami.
+    # --------------------------------------------------------
+
+    _autosave()
+
+    @st.fragment(run_every=45)
+    def _heartbeat():
+        _autosave()
+
+    _heartbeat()
+
+    # --------------------------------------------------------
+    # IŠĖJIMO IŠ TESTO FIKSAVIMAS
+    # Naršyklė praneša, kai testo langas paslepiamas (kita programa,
+    # kitas skirtukas). Grįžus įvykis perduodamas į paslėptą lauką.
+    # Fotografuojant sprendimą išėjimas neskaičiuojamas.
+    # --------------------------------------------------------
+
 
     # --------------------------------------------------------
     # LAIKO PATIKRINIMAS
@@ -504,6 +665,14 @@ elif st.session_state.step == "taking_test":
 
             el.innerText =
                 "⏱️ Liko laiko: " + m + ":" + s;
+
+            if (totalSec <= 60) {{
+                el.style.color = "#dc2626";
+                el.innerText += "  – paskutinė minutė! Pateik testą.";
+            }} else if (totalSec <= 300) {{
+                el.style.color = "#d97706";
+                el.innerText += "  – liko mažiau nei 5 min.";
+            }}
         }}
 
         tick();
@@ -614,6 +783,9 @@ elif st.session_state.step == "taking_test":
 
         elif q["type"] == "image_upload":
 
+            if st.session_state.get("_restored_img", {}).get(tq["id"]):
+                st.caption("✓ Sprendimo nuotrauka jau išsaugota. Jei reikia, nufotografuok iš naujo.")
+
             answers[tq["id"]] = st.file_uploader(
                 "Įkelk sprendimo nuotrauką",
                 type=[
@@ -635,6 +807,67 @@ elif st.session_state.step == "taking_test":
         "✅ Pateikti testą",
         type="primary",
         on_click=_request_submit,
+    )
+
+    st.text_input("ets_leave_log", key="ets_leave_log", label_visibility="collapsed")
+    st.markdown(
+        """<style>div[data-testid="stTextInput"]:has(input[aria-label="ets_leave_log"])
+        {display:none !important;}</style>""",
+        unsafe_allow_html=True,
+    )
+    components.html(
+        """
+        <script>
+        (function () {
+          var P = window.parent;
+          // Paslepiam techninį lauką ir senose naršyklėse (be CSS :has)
+          try {
+            var inp = P.document.querySelector('input[aria-label="ets_leave_log"]');
+            var box = inp && inp.closest('[data-testid="stTextInput"]');
+            if (box) box.style.display = 'none';
+          } catch (e) {}
+          if (P.__etsLeaveInstalled) return;
+          P.__etsLeaveInstalled = true;
+          var code = `
+            (function () {
+              var S = window.__etsLeave = { log: [], hiddenAt: null, photo: false };
+              function now() { return new Date().toISOString(); }
+              document.addEventListener('click', function (e) {
+                if (e.target.closest && e.target.closest('[data-testid="stFileUploader"]')) {
+                  window.__etsCamera = Date.now();
+                }
+              }, true);
+              function hide() {
+                if (S.hiddenAt) return;
+                S.hiddenAt = now();
+                S.photo = !!(window.__etsCamera && Date.now() - window.__etsCamera < 15000);
+              }
+              function show() {
+                if (!S.hiddenAt) return;
+                var out = S.hiddenAt; S.hiddenAt = null;
+                if (S.photo) { S.photo = false; return; }
+                S.log.push({ out: out, back: now() });
+                push();
+              }
+              function push() {
+                var inp = document.querySelector('input[aria-label="ets_leave_log"]');
+                if (!inp) return;
+                var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                setter.call(inp, JSON.stringify({ leaves: S.log }));
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+              }
+              document.addEventListener('visibilitychange', function () { document.hidden ? hide() : show(); });
+              window.addEventListener('ets-hidden', hide);
+              window.addEventListener('ets-visible', show);
+            })();`;
+          var el = P.document.createElement('script');
+          el.textContent = code;
+          P.document.head.appendChild(el);
+        })();
+        </script>
+        """,
+        height=0,
     )
 
 
