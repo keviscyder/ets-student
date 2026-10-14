@@ -383,6 +383,15 @@ def _save_and_submit():
 
 st.title("E-testavimas")
 
+_CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encoding="utf-8")
+if st.session_state.get("step") != "taking_test":
+    # Ne testo metu skaičiuotuvo nerodom
+    components.html(
+        "<script>try{['ets-calc-btn','ets-calc'].forEach(function(i){"
+        "var e=window.parent.document.getElementById(i);if(e)e.remove();});}catch(e){}</script>",
+        height=0,
+    )
+
 _info = _client_info()
 if _info["app"] or _info["tablet"]:
     _label = " · ".join(
@@ -741,6 +750,20 @@ elif st.session_state.step == "taking_test":
         height=40,
     )
 
+
+    # --------------------------------------------------------
+    # SKAIČIUOTUVAS (plaukiojantis mygtukas 🧮 kairėje apačioje)
+    # Veikia tik naršyklėje, serverio neapkrauna.
+    # --------------------------------------------------------
+
+    components.html(
+        "<script>(function(){var P=window.parent;"
+        "if(P.document.getElementById('ets-calc-btn'))return;"
+        "var el=P.document.createElement('script');el.textContent="
+        + json.dumps(_CALC_JS)
+        + ";P.document.head.appendChild(el);})();</script>",
+        height=0,
+    )
 
     # --------------------------------------------------------
     # TESTO PAVADINIMAS
