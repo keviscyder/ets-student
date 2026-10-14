@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: "Source Sans Pro", sans-serif; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0 8px; }
+  .b { font-size: 15px; padding: 7px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+       background: #fff; color: #1e293b; cursor: pointer; user-select: none; }
+  .b.on { background: #1e293b; color: #fff; border-color: #1e293b; }
+  .sep { width: 1px; height: 26px; background: #e2e8f0; margin: 0 2px; }
+  #wrap { border: 1px solid #94a3b8; border-radius: 8px; overflow: hidden; background: #fff; }
+  canvas { display: block; touch-action: none; }
+  #st { font-size: 13px; color: #64748b; margin-left: auto; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="b on" id="pen-black" title="Juodas rašiklis">✏️ Juodas</span>
+  <span class="b" id="pen-blue" title="Mėlynas rašiklis">🔵 Mėlynas</span>
+  <span class="b" id="eraser" title="Trintukas">🧽 Trintukas</span>
+  <span class="sep"></span>
+  <span class="b" id="thin">Plonas</span>
+  <span class="b" id="thick">Storas</span>
+  <span class="sep"></span>
+  <span class="b" id="undo" title="Atšaukti paskutinį brūkšnį">↶ Atgal</span>
+  <span class="b" id="clear" title="Išvalyti lapą">🗑 Išvalyti</span>
+  <span class="b" id="more" title="Pridėti vietos apačioje">➕ Daugiau vietos</span>
+  <span id="st"></span>
+</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+(function () {
+  var C = document.getElementById('c'), X = C.getContext('2d');
+  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 650, GRID = 25;
+  var strokes = [], cur = null, bg = null, bgUrl = null, color = '#111827', width = 2.5, erase = false;
+  var penSeen = false, sendTimer = null, counter = 0, cleared = false;
+
+  function send(type, extra) {
+    var m = { isStreamlitMessage: true, type: type };
+    for (var k in extra) m[k] = extra[k];
+    window.parent.postMessage(m, '*');
+  }
+  function setHeight() { send('streamlit:setFrameHeight', { height: document.body.scrollHeight + 4 }); }
+  function status(t) { document.getElementById('st').textContent = t; }
+
+  function resize() {
+    W = document.getElementById('wrap').clientWidth || 700;
+    C.width = Math.round(W * DPR); C.height = Math.round(H * DPR);
+    C.style.width = W + 'px'; C.style.height = H + 'px';
+    redraw(); setHeight();
+  }
+  function paper() {
+    X.setTransform(DPR, 0, 0, DPR, 0, 0);
+    X.globalCompositeOperation = 'source-over';
+    X.fillStyle = '#ffffff'; X.fillRect(0, 0, W, H);
+    X.strokeStyle = '#dbeafe'; X.lineWidth = 1;
+    for (var x = GRID; x < W; x += GRID) { X.beginPath(); X.moveTo(x + .5, 0); X.lineTo(x + .5, H); X.stroke(); }
+    for (var y = GRID; y < H; y += GRID) { X.beginPath(); X.moveTo(0, y + .5); X.lineTo(W, y + .5); X.stroke(); }
+    if (bg && !cleared) X.drawImage(bg, 0, 0, W, bg.height * W / bg.width);
+  }
+  function drawStroke(s) {
+    var p = s.pts; if (!p.length) return;
+    X.lineCap = 'round'; X.lineJoin = 'round';
+    X.strokeStyle = s.erase ? '#ffffff' : s.color;
+    X.lineWidth = s.erase ? s.width * 6 : s.width;
+    X.beginPath(); X.moveTo(p[0][0], p[0][1]);
+    if (p.length === 1) X.lineTo(p[0][0] + .1, p[0][1] + .1);
+    for (var i = 1; i < p.length; i++) X.lineTo(p[i][0], p[i][1]);
+    X.stroke();
+  }
+  function redraw() { paper(); for (var i = 0; i < strokes.length; i++) drawStroke(strokes[i]); if (cur) drawStroke(cur); }
+  function pos(e) { var r = C.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+
+  C.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'pen') penSeen = true;
+    if (penSeen && e.pointerType === 'touch') return;   // delnas ant ekrano, kai rašoma rašikliu
+    C.setPointerCapture(e.pointerId);
+    cur = { pts: [pos(e)], color: color, width: width, erase: erase };
+    drawStroke(cur); e.preventDefault();
+  });
+  C.addEventListener('pointermove', function (e) {
+    if (!cur) return;
+    var evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (var i = 0; i < evs.length; i++) cur.pts.push(pos(evs[i]));
+    var p = cur.pts, n = p.length;
+    X.lineCap = 'round'; X.lineJoin = 'round';
+    X.strokeStyle = cur.erase ? '#ffffff' : cur.color; X.lineWidth = cur.erase ? cur.width * 6 : cur.width;
+    X.beginPath(); X.moveTo(p[Math.max(0, n - evs.length - 1)][0], p[Math.max(0, n - evs.length - 1)][1]);
+    for (var j = Math.max(0, n - evs.length); j < n; j++) X.lineTo(p[j][0], p[j][1]);
+    X.stroke(); e.preventDefault();
+  });
+  function end() { if (!cur) return; strokes.push(cur); cur = null; changed(); }
+  C.addEventListener('pointerup', end); C.addEventListener('pointercancel', end);
+
+  function changed() {
+    status('Saugoma...');
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(function () {
+      counter += 1;
+      var empty = strokes.length === 0 && (!bg || cleared);
+      send('streamlit:setComponentValue', {
+        value: empty ? null : { n: counter, data: C.toDataURL('image/jpeg', 0.85) },
+        dataType: 'json'
+      });
+      status(empty ? '' : '✓ Išsaugota');
+    }, 1200);
+  }
+
+  function tool(id) {
+    ['pen-black', 'pen-blue', 'eraser'].forEach(function (b) { document.getElementById(b).classList.remove('on'); });
+    document.getElementById(id).classList.add('on');
+  }
+  document.getElementById('pen-black').onclick = function () { color = '#111827'; erase = false; tool('pen-black'); };
+  document.getElementById('pen-blue').onclick = function () { color = '#1d4ed8'; erase = false; tool('pen-blue'); };
+  document.getElementById('eraser').onclick = function () { erase = true; tool('eraser'); };
+  function thick(on) { width = on ? 4.5 : 2.5;
+    document.getElementById('thick').classList.toggle('on', on); document.getElementById('thin').classList.toggle('on', !on); }
+  document.getElementById('thin').onclick = function () { thick(false); };
+  document.getElementById('thick').onclick = function () { thick(true); };
+  thick(false);
+  document.getElementById('undo').onclick = function () { if (strokes.length) { strokes.pop(); redraw(); changed(); } };
+  var clearArmed = null;
+  document.getElementById('clear').onclick = function () {
+    var b = document.getElementById('clear');
+    if (!strokes.length && (!bg || cleared)) return;
+    if (!clearArmed) {           // pirmas paspaudimas - paklausiam patvirtinimo
+      b.textContent = 'Tikrai išvalyti?'; b.style.background = '#fee2e2';
+      clearArmed = setTimeout(function () { clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = ''; }, 3000);
+      return;
+    }
+    clearTimeout(clearArmed); clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = '';
+    strokes = []; cleared = true; redraw(); changed();
+  };
+  document.getElementById('more').onclick = function () { H += 400; resize(); changed(); };
+
+  window.addEventListener('message', function (ev) {
+    var d = ev.data || {};
+    if (d.type !== 'streamlit:render') return;
+    var url = d.args && d.args.initial;
+    // Ankstesnis (išsaugotas) lapas: užkraunam tik jei šiame lange dar nieko nerašyta.
+    if (url && url !== bgUrl && strokes.length === 0 && !cleared) {
+      bgUrl = url;
+      var img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = function () { bg = img; var need = Math.round(img.height * (W / img.width)); if (need > H) H = need; resize(); };
+      img.src = url;
+    }
+    if (!W) resize();
+  });
+  window.addEventListener('resize', function () { var w = document.getElementById('wrap').clientWidth; if (w && w !== W) resize(); });
+  send('streamlit:componentReady', { apiVersion: 1 });
+  resize();
+})();
+</script>
+</body>
+</html>

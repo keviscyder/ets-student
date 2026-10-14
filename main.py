@@ -12,6 +12,9 @@ import streamlit.components.v1 as components
 
 from utils.db import get_client
 from utils.storage import upload_image
+from utils.sketch import sketch_pad
+import base64
+import io
 # Streamlit Cloud po atnaujinimo gali laikyti seną modulio versiją (ImportError)
 import importlib
 import utils.grading as _grading
@@ -194,6 +197,19 @@ def _merge_leave_log():
     return bool(new)
 
 
+def _drawing_changed(tq_id):
+    """Ar ranka rašytas lapas pasikeitė nuo paskutinio išsaugojimo."""
+    key = f"draw_{tq_id}"
+    if key not in st.session_state:
+        return False
+    drawing = st.session_state.get(key)
+    prev = st.session_state.get("_saved", {}).get(tq_id)
+    if drawing and drawing.get("n"):
+        return prev != ("draw", drawing.get("n"))
+    # lapas išvalytas - jei anksčiau buvo išsaugotas piešinys, ištrinam
+    return isinstance(prev, tuple) and prev[0] == "draw"
+
+
 def _autosave():
     """Išsaugo pasikeitusius atsakymus ir bandymo eigą (paskutinį aktyvumą,
     atsakytų klausimų skaičių, planšetę, išėjimus iš testo).
@@ -209,11 +225,20 @@ def _autosave():
     for tq in questions:
         q = tq["question_bank"]
         key = f"ans_{tq['id']}"
-        if key not in st.session_state:
+        if key not in st.session_state and f"draw_{tq['id']}" not in st.session_state:
             continue
-        ans = st.session_state[key]
+        ans = st.session_state.get(key)
 
-        if q["type"] == "image_upload":
+        if q["type"] == "image_upload" and _drawing_changed(tq["id"]):
+            drawing = st.session_state.get(f"draw_{tq['id']}")
+            url = None
+            if drawing and drawing.get("data"):
+                raw = base64.b64decode(drawing["data"].split(",", 1)[1])
+                url = upload_image(supabase, io.BytesIO(raw), folder="answers")
+                st.session_state.setdefault("_img_urls", {})[tq["id"]] = url
+            data = {"text_answer": None, "image_url": url, "score": None, "graded_by": "teacher"}
+            saved[tq["id"]] = ("draw", drawing.get("n")) if drawing else ""
+        elif q["type"] == "image_upload":
             if ans is None:
                 continue
             fid = getattr(ans, "file_id", None) or f"{getattr(ans, 'name', '')}_{getattr(ans, 'size', '')}"
@@ -783,11 +808,18 @@ elif st.session_state.step == "taking_test":
 
         elif q["type"] == "image_upload":
 
-            if st.session_state.get("_restored_img", {}).get(tq["id"]):
-                st.caption("✓ Sprendimo nuotrauka jau išsaugota. Jei reikia, nufotografuok iš naujo.")
+            st.caption("✍️ Spręsk čia: rašyk pirštu arba rašikliu. Lapas išsaugomas automatiškai.")
+            sketch_pad(
+                key=f"draw_{tq['id']}",
+                initial_url=(
+                    st.session_state.get("_img_urls", {}).get(tq["id"])
+                    or st.session_state.get("_restored_img", {}).get(tq["id"])
+                ),
+            )
 
-            answers[tq["id"]] = st.file_uploader(
-                "Įkelk sprendimo nuotrauką",
+            with st.expander("Arba nufotografuok sprendimą iš sąsiuvinio"):
+                answers[tq["id"]] = st.file_uploader(
+                    "Įkelk sprendimo nuotrauką",
                 type=[
                     "png",
                     "jpg",
