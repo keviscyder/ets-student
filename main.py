@@ -35,9 +35,12 @@ from utils.test_queries import (
 )
 
 
+from pathlib import Path
+from PIL import Image as _PILImage
+
 st.set_page_config(
-    page_title="ETS — Testavimas",
-    page_icon="",
+    page_title="E-testavimas",
+    page_icon=_PILImage.open(Path(__file__).parent / "logo.png"),
     layout="centered",
 )
 
