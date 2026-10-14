@@ -32,7 +32,7 @@
 <script>
 (function () {
   var C = document.getElementById('c'), X = C.getContext('2d');
-  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var DPR = 1;  // senoms planšetėms: mažiau atminties
   var W = 0, H = 650, GRID = 25;
   var strokes = [], cur = null, bg = null, bgUrl = null, color = '#111827', width = 2.5, erase = false;
   var penSeen = false, sendTimer = null, counter = 0, cleared = false;
@@ -101,11 +101,11 @@
       counter += 1;
       var empty = strokes.length === 0 && (!bg || cleared);
       send('streamlit:setComponentValue', {
-        value: empty ? null : { n: counter, data: C.toDataURL('image/jpeg', 0.85) },
+        value: empty ? null : { n: counter, data: C.toDataURL('image/jpeg', 0.7) },
         dataType: 'json'
       });
       status(empty ? '' : '✓ Išsaugota');
-    }, 1200);
+    }, 2500);
   }
 
   function tool(id) {

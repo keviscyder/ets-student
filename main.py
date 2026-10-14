@@ -227,10 +227,25 @@ def _upload_pad(data_url):
     return upload_image(supabase, io.BytesIO(raw), folder="answers")
 
 
-def _autosave():
-    """Išsaugo pasikeitusius atsakymus, juodraščius ir bandymo eigą
-    (paskutinį aktyvumą, atsakytų klausimų skaičių, planšetę, išėjimus).
-    Kviečiama prie kiekvieno mokinio veiksmo ir periodiškai."""
+def _current_answer(tq):
+    """Dabartinė mokinio atsakymo reikšmė iš valdiklių (arba None, jei neparodyta)."""
+    q = tq["question_bank"]
+    tid = tq["id"]
+    if q["type"] == "image_upload":
+        key = f"final_{tid}"
+        return (st.session_state.get(key) or "") if key in st.session_state else None
+    key = f"ans_{tid}"
+    return (st.session_state.get(key) or "") if key in st.session_state else None
+
+
+def _autosave(force_progress=False):
+    """Išsaugo pasikeitusius atsakymus, juodraščius ir bandymo eigą.
+
+    Svarbu: atmintyje pažymime „išsaugota“ TIK po sėkmingo įrašymo į duomenų
+    bazę. Lėtose planšetėse Streamlit gali nutraukti vykdymą pusiaukelėje
+    (mokinys jau spaudžia kitą veiksmą) – tada pakeitimas liks neišsaugotas
+    atmintyje ir bus įrašytas kito veiksmo metu.
+    """
     if st.session_state.get("step") != "taking_test":
         return
     submission = st.session_state.submission
@@ -240,82 +255,93 @@ def _autosave():
     saved_final = st.session_state.setdefault("_saved_final", {})
     img_urls = st.session_state.setdefault("_img_urls", {})
     ids = st.session_state.setdefault("_answer_ids", {})
-    to_insert = []
 
+    pending_insert = []   # (eilutė, [žymių atnaujinimai])
     for tq in questions:
         q = tq["question_bank"]
         tid = tq["id"]
-        upd = {}
+        upd, marks = {}, []
+        try:
+            if q["type"] == "image_upload":
+                changed, data_url, mark = _pad_change(f"draw_{tid}", saved.get(tid))
+                if changed:
+                    url = _upload_pad(data_url) if data_url else None
+                    upd.update({"image_url": url, "score": None, "graded_by": "teacher"})
+                    marks.append((saved, tid, mark)); marks.append((img_urls, tid, url))
+                photo = st.session_state.get(f"ans_{tid}")
+                if photo is not None:
+                    fid = getattr(photo, "file_id", None) or f"{getattr(photo, 'name', '')}_{getattr(photo, 'size', '')}"
+                    if saved.get(tid) != ("img", fid):
+                        upd.update({"image_url": upload_image(supabase, photo, folder="answers"),
+                                    "score": None, "graded_by": "teacher"})
+                        marks.append((saved, tid, ("img", fid)))
+                fkey = f"final_{tid}"
+                if fkey in st.session_state:
+                    final = st.session_state.get(fkey) or ""
+                    if final != saved_final.get(tid, ""):
+                        upd.update({"text_answer": final, "score": None, "graded_by": "teacher"})
+                        marks.append((saved_final, tid, final))
+                defaults = {"text_answer": None, "image_url": None, "score": None, "graded_by": "teacher"}
+            else:
+                key = f"ans_{tid}"
+                if key in st.session_state:
+                    text = st.session_state.get(key) or ""
+                    if not (saved.get(tid) == text or (text == "" and tid not in saved)):
+                        score, graded_by = auto_grade(q, text)
+                        upd.update({"text_answer": text, "score": score, "graded_by": graded_by})
+                        marks.append((saved, tid, text))
+                changed, data_url, mark = _pad_change(f"draft_{tid}", saved_draft.get(tid))
+                if changed:
+                    url = _upload_pad(data_url) if data_url else None
+                    upd["image_url"] = url
+                    marks.append((saved_draft, tid, mark)); marks.append((img_urls, tid, url))
+                score0, graded0 = auto_grade(q, "")
+                defaults = {"text_answer": "", "image_url": None, "score": score0, "graded_by": graded0}
 
-        if q["type"] == "image_upload":
-            # 1) sprendimo lapas
-            changed, data_url, mark = _pad_change(f"draw_{tid}", saved.get(tid))
-            if changed:
-                url = _upload_pad(data_url) if data_url else None
-                img_urls[tid] = url
-                upd.update({"image_url": url, "score": None, "graded_by": "teacher"})
-                saved[tid] = mark
-            # 2) arba nuotrauka
-            photo = st.session_state.get(f"ans_{tid}")
-            if photo is not None:
-                fid = getattr(photo, "file_id", None) or f"{getattr(photo, 'name', '')}_{getattr(photo, 'size', '')}"
-                if saved.get(tid) != ("img", fid):
-                    upd.update({"image_url": upload_image(supabase, photo, folder="answers"),
-                                "score": None, "graded_by": "teacher"})
-                    saved[tid] = ("img", fid)
-            # 3) galutinis atsakymas langelyje
-            fkey = f"final_{tid}"
-            if fkey in st.session_state:
-                final = st.session_state.get(fkey) or ""
-                if final != saved_final.get(tid, ""):
-                    upd.update({"text_answer": final, "score": None, "graded_by": "teacher"})
-                    saved_final[tid] = final
-            defaults = {"text_answer": None, "image_url": None, "score": None, "graded_by": "teacher"}
-        else:
-            # 1) atsakymas
-            key = f"ans_{tid}"
-            if key in st.session_state:
-                text = st.session_state.get(key) or ""
-                if not (saved.get(tid) == text or (text == "" and tid not in saved)):
-                    score, graded_by = auto_grade(q, text)
-                    upd.update({"text_answer": text, "score": score, "graded_by": graded_by})
-                    saved[tid] = text
-            # 2) juodraštis
-            changed, data_url, mark = _pad_change(f"draft_{tid}", saved_draft.get(tid))
-            if changed:
-                url = _upload_pad(data_url) if data_url else None
-                img_urls[tid] = url
-                upd["image_url"] = url
-                saved_draft[tid] = mark
-            score0, graded0 = auto_grade(q, "")
-            defaults = {"text_answer": "", "image_url": None, "score": score0, "graded_by": graded0}
-
-        if not upd:
+            if not upd:
+                continue
+            if tid in ids:
+                update_answer(supabase, ids[tid], upd)
+                for d, k, v in marks:
+                    d[k] = v
+            else:
+                pending_insert.append(({**defaults, **upd, "submission_id": submission["id"],
+                                        "test_question_id": tid}, marks))
+        except Exception:
+            # nepavyko (pvz., ryšys) - bandysim kito veiksmo metu
             continue
-        if tid in ids:
-            update_answer(supabase, ids[tid], upd)
-        else:
-            to_insert.append({**defaults, **upd, "submission_id": submission["id"], "test_question_id": tid})
 
-    if to_insert:
-        res = insert_answers(supabase, to_insert)
-        for r in (res.data or []) if res is not None else []:
-            ids[r["test_question_id"]] = r["id"]
+    if pending_insert:
+        try:
+            res = insert_answers(supabase, [row for row, _ in pending_insert])
+            for r in (res.data or []) if res is not None else []:
+                ids[r["test_question_id"]] = r["id"]
+            for _, marks in pending_insert:
+                for d, k, v in marks:
+                    d[k] = v
+        except Exception:
+            pass
 
-    progress = {
-        "last_seen": datetime.now(timezone.utc).isoformat(),
-        "answered_count": sum(1 for v in saved.values() if v not in ("", None)),
-    }
+    # Eigos informacija: ne dažniau kaip kas 20 s (nebent kas pasikeitė)
+    answered = sum(1 for v in saved.values() if v not in ("", None))
+    now_ts = time.time()
+    progress = {}
     info = _client_info()
     if info["tablet"] and st.session_state.get("_tablet_saved") != submission["id"]:
         progress["tablet"] = info["tablet"]
-        st.session_state._tablet_saved = submission["id"]
     if _merge_leave_log():
         progress["leave_events"] = st.session_state._leaves
-    try:
-        update_submission_progress(supabase, submission["id"], progress)
-    except Exception:
-        pass
+    if (force_progress or progress or answered != st.session_state.get("_last_answered")
+            or now_ts - st.session_state.get("_last_progress", 0) > 20):
+        progress.update({"last_seen": datetime.now(timezone.utc).isoformat(), "answered_count": answered})
+        try:
+            update_submission_progress(supabase, submission["id"], progress)
+            st.session_state._last_progress = now_ts
+            st.session_state._last_answered = answered
+            if "tablet" in progress:
+                st.session_state._tablet_saved = submission["id"]
+        except Exception:
+            pass
 
 
 def _fmt_points(x):
@@ -358,23 +384,30 @@ def _save_and_submit():
     submission = st.session_state.submission
     questions = st.session_state.test_questions
 
-    # Pirma išsaugom viską, kas pasikeitė (ir nuotraukas).
-    _autosave()
+    # Pirma išsaugom viską, kas pasikeitė (ir nuotraukas, juodraščius).
+    _autosave(force_progress=True)
 
-    # Klausimams, į kuriuos mokinys neatsakė, įrašom tuščią atsakymą,
-    # kad mokytojas matytų visus klausimus.
-    ids = st.session_state.get("_answer_ids", {})
-    existing = get_existing_answer_ids(supabase, submission["id"])
+    # Galutinis patikrinimas su duomenų baze: jei kurio nors atsakymo
+    # duomenų bazėje nėra arba jis kitoks nei ekrane – įrašom iš naujo.
+    db_rows = get_saved_answers(supabase, submission["id"])
     to_insert = []
     for tq in questions:
-        if tq["id"] in ids or tq["id"] in existing:
-            continue
         q = tq["question_bank"]
+        cur = _current_answer(tq)
+        row = db_rows.get(tq["id"])
+        if row:
+            if cur is not None and (row.get("text_answer") or "") != cur:
+                if q["type"] == "image_upload":
+                    update_answer(supabase, row["id"], {"text_answer": cur, "score": None, "graded_by": "teacher"})
+                else:
+                    score, graded_by = auto_grade(q, cur)
+                    update_answer(supabase, row["id"], {"text_answer": cur, "score": score, "graded_by": graded_by})
+            continue
         if q["type"] == "image_upload":
-            data = {"text_answer": None, "image_url": None, "score": None, "graded_by": "teacher"}
+            data = {"text_answer": cur, "image_url": None, "score": None, "graded_by": "teacher"}
         else:
-            score, graded_by = auto_grade(q, "")
-            data = {"text_answer": "", "image_url": None, "score": score, "graded_by": graded_by}
+            score, graded_by = auto_grade(q, cur or "")
+            data = {"text_answer": cur or "", "image_url": None, "score": score, "graded_by": graded_by}
         to_insert.append({**data, "submission_id": submission["id"], "test_question_id": tq["id"]})
 
     insert_answers(supabase, to_insert)
