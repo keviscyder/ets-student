@@ -8,6 +8,26 @@ import random
 from datetime import datetime, timezone
 
 import streamlit as st
+
+
+def _install_polyfill():
+    """Įterpia trūkstamas JS funkcijas į Streamlit pradinį puslapį (index.html),
+    kad jos veiktų dar prieš paleidžiant programą. Reikia senoms planšetėms,
+    kurių Android System WebView neturi String.replaceAll, Object.hasOwn ir pan."""
+    from pathlib import Path as _P
+    try:
+        index = _P(st.__file__).parent / "static" / "index.html"
+        html = index.read_text(encoding="utf-8")
+        if "ets-polyfill" in html:
+            return
+        js = (_P(__file__).parent / "assets" / "polyfill.js").read_text(encoding="utf-8")
+        html = html.replace("<head>", '<head><script id="ets-polyfill">' + js + "</script>", 1)
+        index.write_text(html, encoding="utf-8")
+    except Exception:
+        pass
+
+
+_install_polyfill()
 import streamlit.components.v1 as components
 
 from utils.db import get_client
