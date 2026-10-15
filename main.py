@@ -25,6 +25,39 @@ def _install_polyfill():
         index.write_text(html, encoding="utf-8")
     except Exception:
         pass
+    # Jei failo pakeisti negalima (serverio failai tik skaitymui) – įterpiam
+    # polyfill tiesiai siunčiant pradinį puslapį.
+    try:
+        from streamlit.web.server import routes as _routes
+        H = _routes.StaticFileHandler
+        if getattr(H, "_ets_polyfill", False):
+            return
+        js = (_P(__file__).parent / "assets" / "polyfill.js").read_text(encoding="utf-8")
+        tag = ('<script id="ets-polyfill">' + js + "</script>").encode("utf-8")
+        orig_get_content = H.get_content.__func__
+        orig_size = H.get_content_size
+
+        def _patched(abspath):
+            data = open(abspath, "rb").read()
+            if b"ets-polyfill" not in data:
+                data = data.replace(b"<head>", b"<head>" + tag, 1)
+            return data
+
+        def get_content(cls, abspath, start=None, end=None):
+            if str(abspath).endswith("index.html"):
+                return _patched(abspath)[start:end]
+            return orig_get_content(cls, abspath, start, end)
+
+        def get_content_size(self):
+            if str(self.absolute_path).endswith("index.html"):
+                return len(_patched(self.absolute_path))
+            return orig_size(self)
+
+        H.get_content = classmethod(get_content)
+        H.get_content_size = get_content_size
+        H._ets_polyfill = True
+    except Exception:
+        pass
 
 
 _install_polyfill()
