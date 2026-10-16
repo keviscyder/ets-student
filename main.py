@@ -29,7 +29,7 @@ def _install_polyfill():
     try:
         from streamlit.web.server import routes as _routes
         H = _routes.StaticFileHandler
-        if getattr(H, "_ets_patch_v3", False):
+        if getattr(H, "_ets_patch_v4", False):
             return
         js = (_P(__file__).parent / "assets" / "polyfill.js").read_text(encoding="utf-8")
         tag = ('<script id="ets-polyfill">' + js + "</script>").encode("utf-8")
@@ -42,7 +42,7 @@ def _install_polyfill():
             if b"ets-polyfill" not in data:
                 data = data.replace(b"<head>", b"<head>" + tag, 1)
             # Naujas adresas, kad planšetės nenaudotų seno, talpykloje išsaugoto failo
-            data = _re0.sub(rb'(static/js/main\.[0-9a-f]+\.js)"', rb'\1?v=ets2"', data)
+            data = _re0.sub(rb'(static/js/main\.[0-9a-f]+\.js)"', rb'\1?v=ets3"', data)
             return data
 
         def get_content(cls, abspath, start=None, end=None):
@@ -95,7 +95,7 @@ def _install_polyfill():
 
         H.validate_absolute_path = validate_absolute_path
         H.set_extra_headers = set_extra_headers
-        H._ets_patch_v3 = True
+        H._ets_patch_v4 = True
     except Exception:
         pass
 
