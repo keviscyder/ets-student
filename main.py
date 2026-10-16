@@ -29,7 +29,7 @@ def _install_polyfill():
     try:
         from streamlit.web.server import routes as _routes
         H = _routes.StaticFileHandler
-        if getattr(H, "_ets_polyfill", False):
+        if getattr(H, "_ets_patch_v2", False):
             return
         js = (_P(__file__).parent / "assets" / "polyfill.js").read_text(encoding="utf-8")
         tag = ('<script id="ets-polyfill">' + js + "</script>").encode("utf-8")
@@ -92,7 +92,7 @@ def _install_polyfill():
 
         H.validate_absolute_path = validate_absolute_path
         H.set_extra_headers = set_extra_headers
-        H._ets_polyfill = True
+        H._ets_patch_v2 = True
     except Exception:
         pass
 
