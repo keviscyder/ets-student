@@ -18,11 +18,10 @@ def _install_polyfill():
     try:
         index = _P(st.__file__).parent / "static" / "index.html"
         html = index.read_text(encoding="utf-8")
-        if "ets-polyfill" in html:
-            return
-        js = (_P(__file__).parent / "assets" / "polyfill.js").read_text(encoding="utf-8")
-        html = html.replace("<head>", '<head><script id="ets-polyfill">' + js + "</script>", 1)
-        index.write_text(html, encoding="utf-8")
+        if "ets-polyfill" not in html:
+            js = (_P(__file__).parent / "assets" / "polyfill.js").read_text(encoding="utf-8")
+            html = html.replace("<head>", '<head><script id="ets-polyfill">' + js + "</script>", 1)
+            index.write_text(html, encoding="utf-8")
     except Exception:
         pass
     # Jei failo pakeisti negalima (serverio failai tik skaitymui) – įterpiam
@@ -55,6 +54,44 @@ def _install_polyfill():
 
         H.get_content = classmethod(get_content)
         H.get_content_size = get_content_size
+
+        # Labai senoms planšetėms (Android System WebView < 85) Streamlit JS
+        # failai nesuprantami (?. ?? ir pan. – baltas ekranas). Joms siunčiam
+        # tų pačių failų versijas, perrašytas senesniu JavaScript (compat_js/).
+        import re as _re
+        compat_dir = _P(__file__).parent / "compat_js"
+        orig_validate = H.validate_absolute_path
+        orig_headers = H.set_extra_headers
+
+        def _old_browser(handler):
+            ua = handler.request.headers.get("User-Agent", "")
+            m = _re.search(r"Chrome/(\d+)", ua)
+            return bool(m) and int(m.group(1)) < 85
+
+        def validate_absolute_path(self, root, absolute_path):
+            path = orig_validate(self, root, absolute_path)
+            self._ets_compat = False
+            try:
+                if path and str(path).endswith(".js") and _old_browser(self):
+                    alt = compat_dir / _P(str(path)).name
+                    if alt.is_file():
+                        self._ets_compat = True
+                        import os as _os
+                        self._stat_result = _os.stat(str(alt))
+                        return str(alt)
+            except Exception:
+                pass
+            return path
+
+        def set_extra_headers(self, path):
+            orig_headers(self, path)
+            if str(path).endswith(".js"):
+                self.set_header("Vary", "User-Agent")
+                if getattr(self, "_ets_compat", False):
+                    self.set_header("Cache-Control", "private, max-age=86400")
+
+        H.validate_absolute_path = validate_absolute_path
+        H.set_extra_headers = set_extra_headers
         H._ets_polyfill = True
     except Exception:
         pass
