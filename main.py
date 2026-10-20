@@ -546,6 +546,31 @@ def _autosave(force_progress=False):
             pass
 
 
+def _show_mcq_summary(submission_id):
+    """Iškart po pateikimo: testinių klausimų rezultatas (✅/❌ ir taškai).
+    Teisingi atsakymai nerodomi, kad jų nesužinotų dar sprendžiantys."""
+    try:
+        rows = get_submission_results(supabase, submission_id)
+    except Exception:
+        return
+    mcq = [r for r in rows if (r.get("test_questions") or {}).get("question_bank", {}).get("type") == "mcq"]
+    if not mcq:
+        return
+    got = sum(float(r.get("score") or 0) for r in mcq)
+    total = sum(float(r["test_questions"]["question_bank"].get("points") or 1) for r in mcq)
+    right = sum(1 for r in mcq if float(r.get("score") or 0) > 0)
+    st.subheader(f"Testiniai klausimai: {_fmt_points(got)} iš {_fmt_points(total)} tšk.")
+    st.caption(f"Teisingai atsakyta {right} iš {len(mcq)}. Atvirus klausimus ir uždavinius įvertins mokytojas.")
+    for r in mcq:
+        q = r["test_questions"]["question_bank"]
+        ok = float(r.get("score") or 0) > 0
+        prompt = re.sub(r"\s+", " ", (q.get("prompt") or "").replace("**", ""))
+        if len(prompt) > 110:
+            prompt = prompt[:107] + "…"
+        mark = "✅" if ok else ("❌" if (r.get("text_answer") or "").strip() else "⬜ neatsakyta –")
+        st.markdown(f"{mark} {prompt}")
+
+
 def _fmt_points(x):
     """1.0 -> '1', 1.5 -> '1.5'."""
     x = float(x or 0)
@@ -1291,6 +1316,9 @@ elif st.session_state.step == "submitted":
     st.success(
         "Testas pateiktas! Rezultatai bus perduoti mokytojui."
     )
+
+    if st.session_state.get("submission"):
+        _show_mcq_summary(st.session_state.submission["id"])
 
     if st.button("Baigti"):
         _reset_to_start()
