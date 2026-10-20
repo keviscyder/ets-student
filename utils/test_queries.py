@@ -16,16 +16,37 @@ def get_all_classes(supabase: Client):
     return supabase.table("classes").select("id, name").order("name").execute().data
 
 
+_LT = str.maketrans("ąčęėįšųūž", "aceeisuuz")
+
+
+def _name_tokens(name: str):
+    """Vardo žodžiai be didžiųjų raidžių ir lietuviškų raidžių skirtumų."""
+    return [t for t in _normalize_name(name).lower().translate(_LT).replace("-", " ").split(" ") if t]
+
+
 def find_student_in_class(supabase: Client, class_id: str, full_name: str):
-    """Ieško mokinio pagal vardą/pavardę (case-insensitive) toje klasėje."""
-    res = (
+    """Ieško mokinio toje klasėje. Žodžių tvarka nesvarbi: tinka ir
+    „Vardas Pavardė“, ir „Pavardė Vardas“ (sąraše dažnai pirma pavardė).
+    Grąžintame įraše „display_name“ – vardas tokia tvarka, kokia įvesta."""
+    typed = _name_tokens(full_name)
+    if not typed:
+        return None
+    rows = (
         supabase.table("students")
         .select("id, name, pin")
         .eq("class_id", class_id)
-        .ilike("name", _normalize_name(full_name))
         .execute()
-    )
-    return res.data[0] if res.data else None
+    ).data or []
+    for r in rows:
+        stored = _name_tokens(r.get("name") or "")
+        if sorted(stored) == sorted(typed):
+            words = _normalize_name(r["name"]).split(" ")
+            # sudėliojam žodžius ta tvarka, kuria įvedė mokinys
+            order = {t: i for i, t in enumerate(typed)}
+            if len(words) == len(stored):
+                words = [w for _, w in sorted(zip(stored, words), key=lambda x: order.get(x[0], 99))]
+            return {**r, "display_name": " ".join(words)}
+    return None
 
 
 def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):

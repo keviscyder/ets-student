@@ -110,6 +110,7 @@ _il.reload(_storage)
 from utils.storage import upload_image, upload_draft, find_draft
 from utils.sketch import sketch_pad
 import base64
+import uuid
 import io
 # Streamlit Cloud po atnaujinimo gali laikyti seną modulio versiją (ImportError)
 import importlib
@@ -242,6 +243,75 @@ def _client_info():
         "app": app.group(1) if app else None,
         "tablet": tab.group(1) if tab else None,
     }
+
+
+# ------------------------------------------------------------
+# VIENAS ĮRENGINYS VIENAM MOKINIUI
+# Kiekvienas įrenginys turi savo pastovų kodą (planšetės numeris arba
+# naršyklėje išsaugotas atsitiktinis kodas). Tą patį mokinį kitame
+# įrenginyje įleidžiam tik tada, kai pirmasis ilgiau nei 2 min. neaktyvus
+# (pvz., sugedo planšetė). Tada senasis įrenginys sustabdomas.
+# ------------------------------------------------------------
+
+DEVICE_IDLE_SECONDS = 120
+
+
+def _device_id():
+    tab = _client_info()["tablet"]
+    if tab:
+        return f"tab-{tab}"
+    if st.session_state.get("_device"):
+        return st.session_state._device
+    if not st.session_state.get("_session_dev"):
+        st.session_state._session_dev = "ses-" + uuid.uuid4().hex[:12]
+    return st.session_state._session_dev
+
+
+def _on_device():
+    v = (st.session_state.get("ets_dev") or "").strip()
+    if v:
+        st.session_state._device = "dev-" + v[:40]
+
+
+def _seconds_ago(ts):
+    try:
+        t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - t).total_seconds()
+    except Exception:
+        return None
+
+
+def _busy_elsewhere(submission):
+    """True, jei šis bandymas dabar atidarytas kitame (aktyviame) įrenginyje."""
+    other = submission.get("device_id")
+    if not other or other == _device_id() or submission.get("status") != "in_progress":
+        return False
+    ago = _seconds_ago(submission.get("last_seen"))
+    return ago is not None and ago < DEVICE_IDLE_SECONDS
+
+
+def _claim_device(submission):
+    try:
+        update_submission_progress(supabase, submission["id"], {
+            "device_id": _device_id(),
+            "last_seen": datetime.now(timezone.utc).isoformat(),
+        })
+        submission["device_id"] = _device_id()
+    except Exception:
+        pass   # jei duomenų bazėje dar nėra stulpelio – veikiam be šio apribojimo
+
+
+def _still_my_device():
+    """Testo metu: ar kitas įrenginys neperėmė šio bandymo."""
+    sub = st.session_state.get("submission")
+    if not sub:
+        return True
+    try:
+        row = get_submission(supabase, sub["assignment_id"], sub["student_id"])
+    except Exception:
+        return True
+    other = (row or {}).get("device_id")
+    return not other or other == _device_id()
 
 
 def _order_questions(questions, seed):
@@ -558,6 +628,29 @@ if st.session_state.get("step") != "taking_test":
         height=0,
     )
 
+if st.session_state.get("step") in (None, "select_class", "enter_name", "enter_code"):
+    # Pastovus šio įrenginio kodas iš naršyklės atminties (žr. _device_id)
+    st.text_input("ets_dev", key="ets_dev", label_visibility="collapsed", on_change=_on_device)
+    st.markdown(
+        """<style>div[data-testid="stTextInput"]:has(input[aria-label="ets_dev"]){display:none !important;}</style>""",
+        unsafe_allow_html=True,
+    )
+    if not st.session_state.get("_device"):
+        components.html(
+            """<script>(function(){var P=window.parent,D=P.document,n=0;
+            function go(){var inp=D.querySelector('input[aria-label="ets_dev"]');
+              if(!inp){if(++n<40)setTimeout(go,250);return;}
+              var b=inp.closest('[data-testid="stTextInput"]');if(b)b.style.display='none';
+              var id=null;try{id=P.localStorage.getItem('ets-dev-id');}catch(e){}
+              if(!id){id=Math.random().toString(36).slice(2)+Date.now().toString(36);try{P.localStorage.setItem('ets-dev-id',id);}catch(e){}}
+              if(inp.value===id)return;
+              var set=Object.getOwnPropertyDescriptor(P.HTMLInputElement.prototype,'value').set;set.call(inp,id);
+              inp.dispatchEvent(new P.Event('input',{bubbles:true}));
+              ['keydown','keypress','keyup'].forEach(function(t){inp.dispatchEvent(new P.KeyboardEvent(t,{key:'Enter',code:'Enter',keyCode:13,which:13,charCode:13,bubbles:true}));});}
+            go();})();</script>""",
+            height=0,
+        )
+
 _info = _client_info()
 if _info["app"] or _info["tablet"]:
     _label = " · ".join(
@@ -618,7 +711,7 @@ elif st.session_state.step == "enter_name":
         if match:
 
             st.success(
-                f"✅ {match['name']} — rasta klasės sąraše"
+                f"✅ {match.get('display_name') or match['name']} — rasta klasės sąraše"
             )
 
             pin_ok = True
@@ -636,7 +729,7 @@ elif st.session_state.step == "enter_name":
             if st.button("Toliau", type="primary", disabled=not pin_ok):
 
                 st.session_state.student_id = match["id"]
-                st.session_state.student_name = match["name"]
+                st.session_state.student_name = match.get("display_name") or match["name"]
                 st.session_state.step = "enter_code"
 
                 st.rerun()
@@ -742,6 +835,17 @@ elif st.session_state.step == "enter_code":
 
                         st.stop()
 
+                    if _busy_elsewhere(submission):
+                        st.error(
+                            "🔒 Šis mokinys jau sprendžia testą kitame įrenginyje. "
+                            "Testą galima spręsti tik viename įrenginyje. "
+                            "Jei tai tu ir planšetė sugedo – palauk 2 minutes ir bandyk dar kartą "
+                            "arba kreipkis į mokytoją."
+                        )
+                        st.stop()
+
+                    _claim_device(submission)
+
                     st.session_state.assignment = assignment
 
                     st.session_state.submission = submission
@@ -791,6 +895,9 @@ elif st.session_state.step == "taking_test":
 
     @st.fragment(run_every=45)
     def _heartbeat():
+        if not _still_my_device():
+            st.session_state.step = "other_device"
+            st.rerun(scope="app")
         _autosave()
 
     _heartbeat()
@@ -1158,6 +1265,21 @@ elif st.session_state.step == "taking_test":
         """,
         height=0,
     )
+
+
+# ============================================================
+# TESTAS ATIDARYTAS KITAME ĮRENGINYJE
+# ============================================================
+
+elif st.session_state.step == "other_device":
+
+    st.error(
+        "🔒 Šis testas dabar atidarytas kitame įrenginyje, todėl čia jis sustabdytas. "
+        "Tavo atsakymai išsaugoti."
+    )
+    if st.button("Grįžti į pradžią"):
+        _reset_to_start()
+        st.rerun()
 
 
 # ============================================================
