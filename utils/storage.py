@@ -40,3 +40,28 @@ def upload_image(supabase: Client, uploaded_file, folder: str = "questions") -> 
     )
 
     return supabase.storage.from_(BUCKET_NAME).get_public_url(filename)
+
+
+DRAFT_FOLDER = "drafts"
+
+
+def upload_draft(supabase: Client, submission_id: str, data: bytes) -> str:
+    """Bendras mokinio juodraštis: vienas failas vienam bandymui (perrašomas)."""
+    path = f"{DRAFT_FOLDER}/{submission_id}.jpg"
+    compressed = compress_image(io.BytesIO(data), max_width=1200, quality=70)
+    supabase.storage.from_(BUCKET_NAME).upload(
+        path, compressed, {"content-type": "image/jpeg", "upsert": "true"},
+    )
+    return supabase.storage.from_(BUCKET_NAME).get_public_url(path)
+
+
+def find_draft(supabase: Client, submission_id: str):
+    """Grąžina juodraščio URL, jei jis jau išsaugotas, kitaip None."""
+    try:
+        files = supabase.storage.from_(BUCKET_NAME).list(DRAFT_FOLDER, {"search": submission_id})
+    except Exception:
+        return None
+    for f in files or []:
+        if f.get("name") == f"{submission_id}.jpg":
+            return supabase.storage.from_(BUCKET_NAME).get_public_url(f"{DRAFT_FOLDER}/{submission_id}.jpg")
+    return None

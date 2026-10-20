@@ -104,7 +104,10 @@ _install_polyfill()
 import streamlit.components.v1 as components
 
 from utils.db import get_client
-from utils.storage import upload_image
+import importlib as _il
+import utils.storage as _storage
+_il.reload(_storage)
+from utils.storage import upload_image, upload_draft, find_draft
 from utils.sketch import sketch_pad
 import base64
 import io
@@ -282,6 +285,8 @@ def _prepare_test_state(submission, questions):
             st.session_state._saved_draft[tq["id"]] = ("draw", "restored")
             st.session_state._restored_img[tq["id"]] = row["image_url"]
     st.session_state._leaves = list(submission.get("leave_events") or [])
+    st.session_state._draft_url = find_draft(supabase, submission["id"])
+    st.session_state._draft_pending = None
     return _order_questions(questions, submission["id"])
 
 
@@ -319,6 +324,29 @@ def _upload_pad(data_url):
     return upload_image(supabase, io.BytesIO(raw), folder="answers")
 
 
+def _save_draft(data_url):
+    """Įkelia bendrą juodraštį į serverį. Grąžina True, jei pavyko."""
+    sub = st.session_state.get("submission")
+    if not sub or not data_url or not data_url.startswith("data:image"):
+        return True
+    try:
+        raw = base64.b64decode(data_url.split(",", 1)[1])
+        url = upload_draft(supabase, sub["id"], raw)
+        st.session_state._draft_url = f"{url}?v={int(time.time())}"
+        return True
+    except Exception:
+        return False
+
+
+def _on_draft():
+    """Juodraštis atsiunčiamas tik jį uždarius. Laukelį iškart išvalom, kad
+    didelis paveikslėlis nebūtų siunčiamas su kiekvienu veiksmu."""
+    data = st.session_state.get("ets_draft") or ""
+    st.session_state.ets_draft = ""
+    if data and not _save_draft(data):
+        st.session_state._draft_pending = data   # bandysim dar kartą vėliau
+
+
 def _only_one_draft(open_id):
     """Senoms planšetėms: vienu metu atidarytas tik vienas juodraštis
     (kiti užsidaro, bet jų turinys lieka išsaugotas)."""
@@ -350,6 +378,8 @@ def _autosave(force_progress=False):
     """
     if st.session_state.get("step") != "taking_test":
         return
+    if st.session_state.get("_draft_pending") and _save_draft(st.session_state._draft_pending):
+        st.session_state._draft_pending = None
     submission = st.session_state.submission
     questions = st.session_state.test_questions or []
     saved = st.session_state.setdefault("_saved", {})
@@ -519,10 +549,11 @@ def _save_and_submit():
 st.title("E-testavimas")
 
 _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encoding="utf-8")
+_DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="utf-8")
 if st.session_state.get("step") != "taking_test":
     # Ne testo metu skaičiuotuvo nerodom
     components.html(
-        "<script>try{['ets-calc-btn','ets-calc'].forEach(function(i){"
+        "<script>try{['ets-calc-btn','ets-calc','ets-draft-btn','ets-draft'].forEach(function(i){"
         "var e=window.parent.document.getElementById(i);if(e)e.remove();});}catch(e){}</script>",
         height=0,
     )
@@ -901,6 +932,21 @@ elif st.session_state.step == "taking_test":
     )
 
     # --------------------------------------------------------
+    # BENDRAS JUODRAŠTIS (mygtukas „✏️ Juodraštis“ apačioje)
+    # Piešiama tik planšetėje, į serverį siunčiama tik uždarius.
+    # --------------------------------------------------------
+
+    _draft_cfg = {"key": submission["id"], "url": st.session_state.get("_draft_url")}
+    components.html(
+        "<script>(function(){var P=window.parent;P.__etsDraftCfg="
+        + json.dumps(_draft_cfg)
+        + ";var el=P.document.createElement('script');el.textContent="
+        + json.dumps(_DRAFT_JS)
+        + ";P.document.head.appendChild(el);})();</script>",
+        height=0,
+    )
+
+    # --------------------------------------------------------
     # TESTO PAVADINIMAS
     # --------------------------------------------------------
 
@@ -1030,17 +1076,7 @@ elif st.session_state.step == "taking_test":
         # Atidaromas tik paspaudus, kad senos planšetės neapsunktų.
         # ====================================================
 
-        if q["type"] != "image_upload":
-            if st.toggle("✏️ Juodraštis", key=f"draft_on_{tq['id']}",
-                         on_change=_only_one_draft, args=(tq["id"],)):
-                sketch_pad(
-                    key=f"draft_{tq['id']}",
-                    initial_url=(
-                        st.session_state.get("_img_urls", {}).get(tq["id"])
-                        or st.session_state.get("_restored_img", {}).get(tq["id"])
-                    ),
-                    height=380,
-                )
+        # (Juodraštis dabar vienas bendras – mygtukas „✏️ Juodraštis“ apačioje.)
 
 
     # ========================================================
@@ -1056,8 +1092,10 @@ elif st.session_state.step == "taking_test":
     )
 
     st.text_input("ets_leave_log", key="ets_leave_log", label_visibility="collapsed")
+    st.text_input("ets_draft", key="ets_draft", label_visibility="collapsed", on_change=_on_draft)
     st.markdown(
-        """<style>div[data-testid="stTextInput"]:has(input[aria-label="ets_leave_log"])
+        """<style>div[data-testid="stTextInput"]:has(input[aria-label="ets_leave_log"]),
+        div[data-testid="stTextInput"]:has(input[aria-label="ets_draft"])
         {display:none !important;}</style>""",
         unsafe_allow_html=True,
     )
@@ -1068,9 +1106,11 @@ elif st.session_state.step == "taking_test":
           var P = window.parent;
           // Paslepiam techninį lauką ir senose naršyklėse (be CSS :has)
           try {
-            var inp = P.document.querySelector('input[aria-label="ets_leave_log"]');
-            var box = inp && inp.closest('[data-testid="stTextInput"]');
-            if (box) box.style.display = 'none';
+            ['ets_leave_log', 'ets_draft'].forEach(function (n) {
+              var inp = P.document.querySelector('input[aria-label="' + n + '"]');
+              var box = inp && inp.closest('[data-testid="stTextInput"]');
+              if (box) box.style.display = 'none';
+            });
           } catch (e) {}
           if (P.__etsLeaveInstalled) return;
           P.__etsLeaveInstalled = true;
@@ -1101,7 +1141,10 @@ elif st.session_state.step == "taking_test":
                 var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
                 setter.call(inp, JSON.stringify({ leaves: S.log }));
                 inp.dispatchEvent(new Event('input', { bubbles: true }));
-                inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                // Streamlit laukelį įrašo paspaudus Enter (keypress)
+                ['keydown', 'keypress', 'keyup'].forEach(function (t) {
+                  inp.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, charCode: 13, bubbles: true }));
+                });
               }
               document.addEventListener('visibilitychange', function () { document.hidden ? hide() : show(); });
               window.addEventListener('ets-hidden', hide);
