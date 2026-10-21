@@ -5,3 +5,7 @@ toolbarMode = "viewer"
 [browser]
 # Nesiunčiam naudojimo statistikos į Streamlit.
 gatherUsageStats = false
+
+[server]
+# Formulynas ir kiti statiniai failai iš aplanko static/ (adresas .../app/static/...)
+enableStaticServing = true

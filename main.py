@@ -669,10 +669,11 @@ st.title("E-testavimas")
 _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encoding="utf-8")
 _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="utf-8")
 _GUARD_JS = (Path(__file__).parent / "assets" / "typing_guard.js").read_text(encoding="utf-8")
+_FORM_JS = (Path(__file__).parent / "assets" / "formulas.js").read_text(encoding="utf-8")
 if st.session_state.get("step") != "taking_test":
     # Ne testo metu skaičiuotuvo nerodom
     components.html(
-        "<script>try{['ets-calc-btn','ets-calc','ets-draft-btn','ets-draft'].forEach(function(i){"
+        "<script>try{['ets-calc-btn','ets-calc','ets-draft-btn','ets-draft','ets-form-btn','ets-form'].forEach(function(i){"
         "var e=window.parent.document.getElementById(i);if(e)e.remove();});}catch(e){}</script>",
         height=0,
     )
@@ -1091,6 +1092,16 @@ elif st.session_state.step == "taking_test":
     # BENDRAS JUODRAŠTIS (mygtukas „✏️ Juodraštis“ apačioje)
     # Piešiama tik planšetėje, į serverį siunčiama tik uždarius.
     # --------------------------------------------------------
+
+    # Formulynas (VBE fizikos priedas) – mygtukas „📘 Formulynas“ dešinėje apačioje
+    components.html(
+        "<script>(function(){var P=window.parent;"
+        "if(P.document.getElementById('ets-form-btn'))return;"
+        "var el=P.document.createElement('script');el.textContent="
+        + json.dumps(_FORM_JS)
+        + ";P.document.head.appendChild(el);})();</script>",
+        height=0,
+    )
 
     # Rašomų atsakymų apsauga: saugo planšetėje ir pats nusiunčia sustojus rašyti
     components.html(
