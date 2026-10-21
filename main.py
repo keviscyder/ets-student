@@ -570,8 +570,8 @@ def _autosave(force_progress=False):
 
 
 def _show_mcq_summary(submission_id):
-    """Iškart po pateikimo: testinių klausimų rezultatas (✅/❌ ir taškai).
-    Teisingi atsakymai nerodomi, kad jų nesužinotų dar sprendžiantys."""
+    """Iškart po pateikimo: tik bendras testinės dalies rezultatas
+    (be klausimų ir teisingų atsakymų)."""
     try:
         rows = get_submission_results(supabase, submission_id)
     except Exception:
@@ -584,14 +584,6 @@ def _show_mcq_summary(submission_id):
     right = sum(1 for r in mcq if float(r.get("score") or 0) > 0)
     st.subheader(f"Testiniai klausimai: {_fmt_points(got)} iš {_fmt_points(total)} tšk.")
     st.caption(f"Teisingai atsakyta {right} iš {len(mcq)}. Atvirus klausimus ir uždavinius įvertins mokytojas.")
-    for r in mcq:
-        q = r["test_questions"]["question_bank"]
-        ok = float(r.get("score") or 0) > 0
-        prompt = re.sub(r"\s+", " ", (q.get("prompt") or "").replace("**", ""))
-        if len(prompt) > 110:
-            prompt = prompt[:107] + "…"
-        mark = "✅" if ok else ("❌" if (r.get("text_answer") or "").strip() else "⬜ neatsakyta –")
-        st.markdown(f"{mark} {prompt}")
 
 
 def _fmt_points(x):
