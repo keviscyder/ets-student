@@ -109,6 +109,9 @@ import utils.storage as _storage
 _il.reload(_storage)
 from utils.storage import upload_image, upload_draft, find_draft
 from utils.sketch import sketch_pad
+import utils.game as _game_mod
+_il.reload(_game_mod)
+from utils.game import game_widget
 import base64
 import uuid
 import io
@@ -118,7 +121,7 @@ import utils.grading as _grading
 import utils.test_queries as _test_queries
 importlib.reload(_grading)
 importlib.reload(_test_queries)
-from utils.grading import auto_grade, is_open_question
+from utils.grading import auto_grade, is_open_question, GAME_KINDS, game_kind, game_results
 from utils.test_queries import (
     get_all_classes,
     find_student_in_class,
@@ -349,6 +352,9 @@ def _prepare_test_state(submission, questions):
                 st.session_state[f"final_{tq['id']}"] = text
             continue
         st.session_state._saved[tq["id"]] = text
+        if q["type"] == "game":
+            st.session_state.setdefault("_game_saved", {})[tq["id"]] = text
+            continue
         if text and (q["type"] != "mcq" or text in (q.get("options") or [])):
             st.session_state[f"ans_{tq['id']}"] = text
         if row.get("image_url"):
@@ -1236,6 +1242,22 @@ elif st.session_state.step == "taking_test":
 
 
         # ====================================================
+        # MINI ŽAIDIMAS
+        # ====================================================
+
+        elif q["type"] == "game":
+
+            st.caption("🎮 " + GAME_KINDS.get(game_kind(q), "Mini žaidimas"))
+            game_widget(
+                q,
+                seed=f"{submission['id']}_{tq['id']}",
+                key=f"ans_{tq['id']}",
+                initial=(st.session_state.get(f"ans_{tq['id']}")
+                         or st.session_state.get("_game_saved", {}).get(tq["id"])),
+            )
+
+
+        # ====================================================
         # NUOTRAUKOS ĮKĖLIMAS
         # ====================================================
 
@@ -1440,6 +1462,8 @@ elif st.session_state.step == "results":
                 st.image(r["image_url"], width=350, caption="Tavo sprendimas")
             else:
                 st.caption("Sprendimas neįkeltas.")
+        elif q["type"] == "game":
+            st.text("🎮 Mini žaidimas " + ("atliktas" if (r.get("text_answer") or "").strip() else "neatliktas"))
         else:
             st.text(f"Tavo atsakymas: {r.get('text_answer') or '—'}")
 

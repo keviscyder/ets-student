@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: "Source Sans Pro", sans-serif; color: #0f172a; }
+  .hint { font-size: 14px; color: #64748b; margin: 2px 0 8px; }
+  .cols { display: flex; gap: 14px; }
+  .col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .card { border: 2px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; background: #fff; font-size: 16px;
+          cursor: pointer; user-select: none; -webkit-user-select: none; min-height: 22px; line-height: 1.3; }
+  .card.sel { border-color: #1d4ed8; background: #eff6ff; box-shadow: 0 0 0 3px #bfdbfe; }
+  .card.used { opacity: .45; }
+  .tag { display: block; margin-top: 4px; font-size: 14px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row .card { flex: 1; cursor: default; }
+  .num { width: 26px; text-align: right; font-weight: 700; color: #64748b; }
+  .mv { width: 46px; height: 42px; font-size: 20px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; cursor: pointer; }
+  .pool { display: flex; flex-wrap: wrap; gap: 8px; min-height: 48px; padding: 8px; border: 2px dashed #cbd5e1; border-radius: 10px; margin-bottom: 10px; }
+  .pool .card, .box .card { padding: 8px 10px; }
+  .boxes { display: flex; flex-wrap: wrap; gap: 10px; }
+  .box { flex: 1 1 200px; border: 2px solid #94a3b8; border-radius: 12px; padding: 8px; background: #f8fafc; min-height: 90px; cursor: pointer; }
+  .box.target { border-color: #1d4ed8; background: #eff6ff; }
+  .box h4 { margin: 0 0 6px; font-size: 16px; }
+  .box .items { display: flex; flex-wrap: wrap; gap: 6px; }
+  .reset { margin-top: 10px; font-size: 14px; padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function () {
+  var COLORS = ['#1d4ed8', '#b91c1c', '#047857', '#a16207', '#7c3aed', '#0e7490', '#be185d', '#4d7c0f', '#c2410c', '#334155'];
+  var spec = null, state = null, sel = null, timer = null, ready = false;
+  var app = document.getElementById('app');
+
+  function send(type, extra) {
+    var m = { isStreamlitMessage: true, type: type };
+    for (var k in extra) m[k] = extra[k];
+    window.parent.postMessage(m, '*');
+  }
+  function height() { send('streamlit:setFrameHeight', { height: document.body.scrollHeight + 6 }); }
+  function changed() {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      var v;
+      if (spec.kind === 'match') v = { pairs: state.pairs };
+      else if (spec.kind === 'order') v = { order: state.order };
+      else v = { groups: state.groups };
+      send('streamlit:setComponentValue', { value: JSON.stringify(v), dataType: 'json' });
+    }, 900);
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+  // ---------- SUJUNK PORAS ----------
+  function renderMatch() {
+    app.innerHTML = '';
+    app.appendChild(el('div', 'hint', 'Bakstelėk kairėje esantį langelį, tada jam tinkantį dešinėje. Norėdamas pataisyti – bakstelėk kairėje dar kartą.'));
+    var cols = el('div', 'cols'), L = el('div', 'col'), R = el('div', 'col');
+    var used = {}, colorOf = {};
+    spec.left.forEach(function (a, i) { var b = state.pairs[a]; if (b) { used[b] = true; colorOf[a] = COLORS[i % COLORS.length]; } });
+    spec.left.forEach(function (a, i) {
+      var c = el('div', 'card' + (sel === a ? ' sel' : ''), a);
+      var b = state.pairs[a];
+      if (b) { var t = el('span', 'tag', '→ ' + b); t.style.color = colorOf[a]; c.appendChild(t); c.style.borderColor = colorOf[a]; }
+      c.onclick = function () {
+        if (state.pairs[a]) { delete state.pairs[a]; sel = a; changed(); }
+        else sel = (sel === a ? null : a);
+        renderMatch();
+      };
+      L.appendChild(c);
+    });
+    spec.right.forEach(function (b) {
+      var c = el('div', 'card' + (used[b] ? ' used' : ''), b);
+      c.onclick = function () {
+        if (!sel || used[b]) return;
+        state.pairs[sel] = b; sel = null; changed(); renderMatch();
+      };
+      R.appendChild(c);
+    });
+    cols.appendChild(L); cols.appendChild(R); app.appendChild(cols);
+    height();
+  }
+
+  // ---------- SUDĖLIOK TVARKA ----------
+  function renderOrder() {
+    app.innerHTML = '';
+    app.appendChild(el('div', 'hint', 'Rodyklėmis perkelk elementus taip, kad jie būtų teisinga tvarka (viršuje – pirmas).'));
+    var col = el('div', 'col');
+    state.order.forEach(function (it, i) {
+      var r = el('div', 'row');
+      r.appendChild(el('span', 'num', (i + 1) + '.'));
+      r.appendChild(el('div', 'card', it));
+      var up = el('button', 'mv', '▲'), dn = el('button', 'mv', '▼');
+      up.disabled = i === 0; dn.disabled = i === state.order.length - 1;
+      up.onclick = function () { var o = state.order; var t = o[i - 1]; o[i - 1] = o[i]; o[i] = t; changed(); renderOrder(); };
+      dn.onclick = function () { var o = state.order; var t = o[i + 1]; o[i + 1] = o[i]; o[i] = t; changed(); renderOrder(); };
+      r.appendChild(up); r.appendChild(dn); col.appendChild(r);
+    });
+    app.appendChild(col);
+    height();
+  }
+
+  // ---------- SURŪŠIUOK ----------
+  function renderGroups() {
+    app.innerHTML = '';
+    app.appendChild(el('div', 'hint', 'Bakstelėk elementą, tada grupę, į kurią jis priklauso. Norėdamas grąžinti – bakstelėk elementą grupėje.'));
+    var pool = el('div', 'pool');
+    spec.items.forEach(function (it) {
+      if (state.groups[it]) return;
+      var c = el('div', 'card' + (sel === it ? ' sel' : ''), it);
+      c.onclick = function (e) { e.stopPropagation(); sel = (sel === it ? null : it); renderGroups(); };
+      pool.appendChild(c);
+    });
+    if (!pool.children.length) pool.appendChild(el('span', 'hint', '✓ Visi elementai surūšiuoti'));
+    app.appendChild(pool);
+    var boxes = el('div', 'boxes');
+    spec.groups.forEach(function (g) {
+      var b = el('div', 'box' + (sel ? ' target' : ''));
+      b.appendChild(el('h4', '', g));
+      var items = el('div', 'items');
+      spec.items.forEach(function (it) {
+        if (state.groups[it] !== g) return;
+        var c = el('div', 'card', it);
+        c.onclick = function (e) { e.stopPropagation(); delete state.groups[it]; changed(); renderGroups(); };
+        items.appendChild(c);
+      });
+      b.appendChild(items);
+      b.onclick = function () { if (!sel) return; state.groups[sel] = g; sel = null; changed(); renderGroups(); };
+      boxes.appendChild(b);
+    });
+    app.appendChild(boxes);
+    height();
+  }
+
+  function render() {
+    if (spec.kind === 'match') renderMatch();
+    else if (spec.kind === 'order') renderOrder();
+    else renderGroups();
+  }
+
+  window.addEventListener('message', function (ev) {
+    var d = ev.data || {};
+    if (d.type !== 'streamlit:render' || ready) return;
+    ready = true;
+    spec = d.args.spec;
+    var init = {};
+    try { init = d.args.initial ? JSON.parse(d.args.initial) : {}; } catch (e) { init = {}; }
+    if (spec.kind === 'match') state = { pairs: init.pairs || {} };
+    else if (spec.kind === 'order') state = { order: (init.order && init.order.length === spec.items.length) ? init.order : spec.items.slice() };
+    else state = { groups: init.groups || {} };
+    render();
+  });
+  window.addEventListener('resize', height);
+  send('streamlit:componentReady', { apiVersion: 1 });
+})();
+</script>
+</body>
+</html>
