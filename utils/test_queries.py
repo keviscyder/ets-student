@@ -52,7 +52,7 @@ def find_student_in_class(supabase: Client, class_id: str, full_name: str):
 def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):
     res = (
         supabase.table("assignments")
-        .select("id, test_id, class_id, opens_at, closes_at, duration_minutes, results_released, tests(title, description)")
+        .select("id, test_id, class_id, opens_at, closes_at, duration_minutes, results_released, tests(title, description, show_formulas)")
         .eq("session_code", session_code.strip().upper())
         .eq("class_id", class_id)
         .execute()

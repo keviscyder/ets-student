@@ -1085,15 +1085,22 @@ elif st.session_state.step == "taking_test":
     # Piešiama tik planšetėje, į serverį siunčiama tik uždarius.
     # --------------------------------------------------------
 
-    # Formulynas (VBE fizikos priedas) – mygtukas „📘 Formulynas“ dešinėje apačioje
-    components.html(
-        "<script>(function(){var P=window.parent;"
-        "if(P.document.getElementById('ets-form-btn'))return;"
-        "var el=P.document.createElement('script');el.textContent="
-        + json.dumps(_FORM_JS)
-        + ";P.document.head.appendChild(el);})();</script>",
-        height=0,
-    )
+    # Formulynas (VBE fizikos priedas) – tik testuose, kuriems mokytojas jį įjungė
+    if (assignment.get("tests") or {}).get("show_formulas"):
+        components.html(
+            "<script>(function(){var P=window.parent;"
+            "if(P.document.getElementById('ets-form-btn'))return;"
+            "var el=P.document.createElement('script');el.textContent="
+            + json.dumps(_FORM_JS)
+            + ";P.document.head.appendChild(el);})();</script>",
+            height=0,
+        )
+    else:
+        components.html(
+            "<script>try{['ets-form-btn','ets-form'].forEach(function(i){"
+            "var e=window.parent.document.getElementById(i);if(e)e.remove();});}catch(e){}</script>",
+            height=0,
+        )
 
     # Rašomų atsakymų apsauga: saugo planšetėje ir pats nusiunčia sustojus rašyti
     components.html(
