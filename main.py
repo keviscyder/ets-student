@@ -417,6 +417,14 @@ def _on_draft():
         st.session_state._draft_pending = data   # bandysim dar kartą vėliau
 
 
+def _on_battery():
+    """Planšetės baterijos lygis (siunčiamas, kai pasikeičia bent 5 %)."""
+    try:
+        st.session_state._battery = max(0, min(100, int(st.session_state.get("ets_batt") or "")))
+    except ValueError:
+        pass
+
+
 def _only_one_draft(open_id):
     """Senoms planšetėms: vienu metu atidarytas tik vienas juodraštis
     (kiti užsidaro, bet jų turinys lieka išsaugotas)."""
@@ -556,6 +564,9 @@ def _autosave(force_progress=False):
         progress["tablet"] = info["tablet"]
     if _merge_leave_log():
         progress["leave_events"] = st.session_state._leaves
+    batt = st.session_state.get("_battery")
+    if batt is not None and batt != st.session_state.get("_battery_saved"):
+        progress["battery"] = batt
     if (force_progress or progress or answered != st.session_state.get("_last_answered")
             or now_ts - st.session_state.get("_last_progress", 0) > 20):
         progress.update({"last_seen": datetime.now(timezone.utc).isoformat(), "answered_count": answered})
@@ -565,6 +576,8 @@ def _autosave(force_progress=False):
             st.session_state._last_answered = answered
             if "tablet" in progress:
                 st.session_state._tablet_saved = submission["id"]
+            if "battery" in progress:
+                st.session_state._battery_saved = progress["battery"]
         except Exception:
             pass
 
@@ -662,6 +675,7 @@ _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encodi
 _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="utf-8")
 _GUARD_JS = (Path(__file__).parent / "assets" / "typing_guard.js").read_text(encoding="utf-8")
 _FORM_JS = (Path(__file__).parent / "assets" / "formulas.js").read_text(encoding="utf-8")
+_BATT_JS = (Path(__file__).parent / "assets" / "battery.js").read_text(encoding="utf-8")
 if st.session_state.get("step") != "taking_test":
     # Ne testo metu skaičiuotuvo nerodom
     components.html(
@@ -692,6 +706,13 @@ if st.session_state.get("step") in (None, "select_class", "enter_name", "enter_c
             go();})();</script>""",
             height=0,
         )
+
+components.html(
+    "<script>(function(){var P=window.parent;var el=P.document.createElement('script');el.textContent="
+    + json.dumps(_BATT_JS)
+    + ";P.document.head.appendChild(el);})();</script>",
+    height=0,
+)
 
 _info = _client_info()
 if _info["app"] or _info["tablet"]:
@@ -1269,9 +1290,11 @@ elif st.session_state.step == "taking_test":
 
     st.text_input("ets_leave_log", key="ets_leave_log", label_visibility="collapsed")
     st.text_input("ets_draft", key="ets_draft", label_visibility="collapsed", on_change=_on_draft)
+    st.text_input("ets_batt", key="ets_batt", label_visibility="collapsed", on_change=_on_battery)
     st.markdown(
         """<style>div[data-testid="stTextInput"]:has(input[aria-label="ets_leave_log"]),
-        div[data-testid="stTextInput"]:has(input[aria-label="ets_draft"])
+        div[data-testid="stTextInput"]:has(input[aria-label="ets_draft"]),
+        div[data-testid="stTextInput"]:has(input[aria-label="ets_batt"])
         {display:none !important;}</style>""",
         unsafe_allow_html=True,
     )
@@ -1282,7 +1305,7 @@ elif st.session_state.step == "taking_test":
           var P = window.parent;
           // Paslepiam techninį lauką ir senose naršyklėse (be CSS :has)
           try {
-            ['ets_leave_log', 'ets_draft'].forEach(function (n) {
+            ['ets_leave_log', 'ets_draft', 'ets_batt'].forEach(function (n) {
               var inp = P.document.querySelector('input[aria-label="' + n + '"]');
               var box = inp && inp.closest('[data-testid="stTextInput"]');
               if (box) box.style.display = 'none';
