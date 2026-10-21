@@ -488,7 +488,9 @@ def _autosave(force_progress=False):
                 key = f"ans_{tid}"
                 if key in st.session_state:
                     text = st.session_state.get(key) or ""
-                    if not (saved.get(tid) == text or (text == "" and tid not in saved)):
+                    # Tuščias laukelis niekada neperrašo jau išsaugoto atsakymo
+                    # (pvz., jei po persikrovimo atsakymas dar neatsikūrė ekrane).
+                    if not (saved.get(tid) == text or (text == "" and not saved.get(tid))):
                         score, graded_by = auto_grade(q, text)
                         upd.update({"text_answer": text, "score": score, "graded_by": graded_by})
                         marks.append((saved, tid, text))
@@ -508,17 +510,38 @@ def _autosave(force_progress=False):
                     d[k] = v
             else:
                 pending_insert.append(({**defaults, **upd, "submission_id": submission["id"],
-                                        "test_question_id": tid}, marks))
+                                        "test_question_id": tid}, marks, upd))
         except Exception:
             # nepavyko (pvz., ryšys) - bandysim kito veiksmo metu
             continue
 
     if pending_insert:
+        # Ankstesnis (nutrauktas) veiksmas galėjo eilutę jau įrašyti – tada ją
+        # atnaujinam, o ne kuriam antrą (dubliai painiodavo atsakymų atkūrimą).
         try:
-            res = insert_answers(supabase, [row for row, _ in pending_insert])
+            existing = get_saved_answers(supabase, submission["id"])
+        except Exception:
+            existing = {}
+        still = []
+        for row, marks, only in pending_insert:
+            ex = existing.get(row["test_question_id"])
+            if ex:
+                try:
+                    ids[row["test_question_id"]] = ex["id"]
+                    update_answer(supabase, ex["id"], only)
+                    for d, k, v in marks:
+                        d[k] = v
+                except Exception:
+                    pass
+            else:
+                still.append((row, marks, only))
+        pending_insert = still
+    if pending_insert:
+        try:
+            res = insert_answers(supabase, [row for row, _, _ in pending_insert])
             for r in (res.data or []) if res is not None else []:
                 ids[r["test_question_id"]] = r["id"]
-            for _, marks in pending_insert:
+            for _, marks, _ in pending_insert:
                 for d, k, v in marks:
                     d[k] = v
         except Exception:
@@ -623,7 +646,7 @@ def _save_and_submit():
         cur = _current_answer(tq)
         row = db_rows.get(tq["id"])
         if row:
-            if cur is not None and (row.get("text_answer") or "") != cur:
+            if cur is not None and (row.get("text_answer") or "") != cur and (cur or not (row.get("text_answer") or "").strip()):
                 if q["type"] == "image_upload":
                     update_answer(supabase, row["id"], {"text_answer": cur, "score": None, "graded_by": "teacher"})
                 else:
@@ -645,6 +668,7 @@ st.title("E-testavimas")
 
 _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encoding="utf-8")
 _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="utf-8")
+_GUARD_JS = (Path(__file__).parent / "assets" / "typing_guard.js").read_text(encoding="utf-8")
 if st.session_state.get("step") != "taking_test":
     # Ne testo metu skaičiuotuvo nerodom
     components.html(
@@ -1067,6 +1091,16 @@ elif st.session_state.step == "taking_test":
     # BENDRAS JUODRAŠTIS (mygtukas „✏️ Juodraštis“ apačioje)
     # Piešiama tik planšetėje, į serverį siunčiama tik uždarius.
     # --------------------------------------------------------
+
+    # Rašomų atsakymų apsauga: saugo planšetėje ir pats nusiunčia sustojus rašyti
+    components.html(
+        "<script>(function(){var P=window.parent;P.__etsGuardCfg="
+        + json.dumps({"key": submission["id"]})
+        + ";var el=P.document.createElement('script');el.textContent="
+        + json.dumps(_GUARD_JS)
+        + ";P.document.head.appendChild(el);})();</script>",
+        height=0,
+    )
 
     _draft_cfg = {"key": submission["id"], "url": st.session_state.get("_draft_url")}
     components.html(

@@ -193,7 +193,17 @@ def get_saved_answers(supabase: Client, submission_id: str) -> dict:
         .eq("submission_id", submission_id)
         .execute()
     )
-    return {r["test_question_id"]: r for r in (res.data or [])}
+    out = {}
+    for r in (res.data or []):
+        prev = out.get(r["test_question_id"])
+        # Jei klausimui yra kelios eilutės (dubliai), imam užpildytą
+        if prev is None or (_filled(r) and not _filled(prev)):
+            out[r["test_question_id"]] = r
+    return out
+
+
+def _filled(r) -> bool:
+    return bool((r.get("text_answer") or "").strip() or r.get("image_url"))
 
 
 def update_submission_progress(supabase: Client, submission_id: str, data: dict):
