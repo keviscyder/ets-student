@@ -196,6 +196,8 @@ st.markdown(
 )
 
 supabase = get_client()
+# Ar ankstesnis pilnas paleidimas nupiešė testo klausimus (žr. TESTO PATEIKIMAS)
+_PREV_TEST_RENDERED = st.session_state.pop("_test_rendered", False)
 
 
 # ============================================================
@@ -1164,6 +1166,28 @@ elif st.session_state.step == "taking_test":
 
     answers = {}
 
+    # Jei po ryšio trikdžio ar persikrovimo laukeliai ekrane tapo tušti, nors
+    # atsakymas jau išsaugotas – grąžinam išsaugotą reikšmę į ekraną.
+    # Jei ankstesnis paleidimas klausimų nenupiešė (klaida, nutrūkimas), ekrane
+    # laukeliai sukuriami iš naujo tušti – tada reikšmes nusiunčiam priverstinai.
+    _force_restore = not _PREV_TEST_RENDERED
+    _saved_now = st.session_state.get("_saved", {})
+    _saved_fin = st.session_state.get("_saved_final", {})
+    for _tq in questions:
+        _q, _tid = _tq["question_bank"], _tq["id"]
+        if _q["type"] == "game":
+            continue
+        if _q["type"] == "image_upload":
+            _k, _v = f"final_{_tid}", _saved_fin.get(_tid)
+        else:
+            _k, _v = f"ans_{_tid}", _saved_now.get(_tid)
+        if not isinstance(_v, str) or not _v.strip():
+            continue
+        if _q["type"] == "mcq" and _v not in (_q.get("options") or []):
+            continue
+        if _force_restore or st.session_state.get(_k) in (None, ""):
+            st.session_state[_k] = _v
+
 
     for tq in questions:
 
@@ -1297,6 +1321,8 @@ elif st.session_state.step == "taking_test":
 
         # (Juodraštis dabar vienas bendras – mygtukas „✏️ Juodraštis“ apačioje.)
 
+
+    st.session_state["_test_rendered"] = True
 
     # ========================================================
     # TESTO PATEIKIMAS

@@ -80,13 +80,22 @@ def get_submission_results(supabase: Client, submission_id: str):
     res = (
         supabase.table("answers")
         .select(
-            "text_answer, image_url, score, teacher_comment, "
+            "test_question_id, text_answer, image_url, score, teacher_comment, "
             "test_questions(order_idx, question_bank(prompt, prompt_image_url, points, type))"
         )
         .eq("submission_id", submission_id)
         .execute()
     )
-    rows = res.data or []
+    # Tas pats klausimas gali turėti kelias eilutes (nutrūkus ryšiui) – paliekam
+    # vieną, pirmenybę teikiant užpildytai.
+    best = {}
+    for r in res.data or []:
+        k = r.get("test_question_id") or id(r)
+        o = best.get(k)
+        if o is None or (not (o.get("text_answer") or o.get("image_url"))
+                         and (r.get("text_answer") or r.get("image_url"))):
+            best[k] = r
+    rows = list(best.values())
     rows.sort(key=lambda r: r["test_questions"]["order_idx"])
     return rows
 
