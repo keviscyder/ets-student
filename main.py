@@ -494,7 +494,7 @@ def _autosave(force_progress=False):
                 fkey = f"final_{tid}"
                 if fkey in st.session_state:
                     final = st.session_state.get(fkey) or ""
-                    if final != saved_final.get(tid, ""):
+                    if final != saved_final.get(tid, "") and final != "":
                         upd.update({"text_answer": final, "score": None, "graded_by": "teacher"})
                         marks.append((saved_final, tid, final))
                 defaults = {"text_answer": None, "image_url": None, "score": None, "graded_by": "teacher"}
@@ -504,7 +504,7 @@ def _autosave(force_progress=False):
                     text = st.session_state.get(key) or ""
                     # Tuščias laukelis niekada neperrašo jau išsaugoto atsakymo
                     # (pvz., jei po persikrovimo atsakymas dar neatsikūrė ekrane).
-                    if not (saved.get(tid) == text or (text == "" and not saved.get(tid))):
+                    if not (saved.get(tid) == text or text == ""):
                         score, graded_by = auto_grade(q, text)
                         upd.update({"text_answer": text, "score": score, "graded_by": graded_by})
                         marks.append((saved, tid, text))
