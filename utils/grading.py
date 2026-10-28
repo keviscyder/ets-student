@@ -12,6 +12,19 @@ def _normalize(text: str) -> str:
     return text
 
 
+_NUM = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _canon(text: str):
+    """Tekstas su vienodai užrašytais skaičiais ir tų skaičių sąrašas.
+    12,5 -> 12.5; 1 254 000 -> 1254000; 35.0 -> 35."""
+    t = re.sub(r"(?<=\d),(?=\d)", ".", text)
+    t = re.sub(r"(?<=\d)[ \u00a0\u202f](?=\d{3}(?!\d))", "", t)
+    nums = [float(x) for x in _NUM.findall(t)]
+    t = _NUM.sub(lambda m: ("%.9f" % float(m.group())).rstrip("0").rstrip("."), t)
+    return t, nums
+
+
 def _best_similarity(submitted: str, accepted_variants: list[str]) -> float:
     return max(
         (difflib.SequenceMatcher(None, submitted, v).ratio() for v in accepted_variants),
@@ -63,13 +76,23 @@ def auto_grade(question: dict, submitted_answer: str):
         if submitted in accepted_variants:
             return points, "auto"
 
-        similarity = _best_similarity(submitted, accepted_variants)
+        # Skaičiai turi sutapti tiksliai (12,5 = 12.5 = 12.50), rašybos klaidos
+        # atleidžiamos tik žodžiams. Kitaip „Q = 386 kJ“ būtų įskaityta vietoj „Q = 336 kJ“.
+        sub_c, sub_n = _canon(submitted)
+        same, other = [], []
+        for v in accepted_variants:
+            v_c, v_n = _canon(v)
+            if sub_c == v_c:
+                return points, "auto"
+            (same if v_n == sub_n else other).append(v_c)
+        sim_same = _best_similarity(sub_c, same)
+        sim_any = max(sim_same, _best_similarity(sub_c, other))
 
-        if similarity >= 0.9:
-            # Tikėtina rašybos klaida ar mažas skirtumas - įskaitom automatiškai
+        if sim_same >= 0.9:
+            # Tikėtina rašybos klaida žodyje, skaičiai tie patys - įskaitom automatiškai
             return points, "auto"
-        elif similarity >= 0.6:
-            # Neaišku - palieku mokytojui peržiūrėti, ne automatiškai 0
+        elif sim_any >= 0.6:
+            # Neaišku (arba kitas skaičius) - palieku mokytojui peržiūrėti, ne automatiškai 0
             return None, "teacher"
         else:
             return 0, "auto"
