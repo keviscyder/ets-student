@@ -49,14 +49,23 @@ def find_student_in_class(supabase: Client, class_id: str, full_name: str):
     return None
 
 
+_ASG_COLS = "id, test_id, class_id, opens_at, closes_at, duration_minutes, results_released, tests(title, description, show_formulas)"
+
+
 def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):
-    res = (
-        supabase.table("assignments")
-        .select("id, test_id, class_id, opens_at, closes_at, duration_minutes, results_released, tests(title, description, show_formulas)")
-        .eq("session_code", session_code.strip().upper())
-        .eq("class_id", class_id)
-        .execute()
-    )
+    def q(cols):
+        return (
+            supabase.table("assignments")
+            .select(cols)
+            .eq("session_code", session_code.strip().upper())
+            .eq("class_id", class_id)
+            .execute()
+        )
+    try:
+        # student_ids – kam skirtas papildomas atsiskaitymas / perrašymas (tuščia = visai klasei)
+        res = q(_ASG_COLS + ", student_ids")
+    except Exception:
+        res = q(_ASG_COLS)   # jei duomenų bazėje šio stulpelio dar nėra
     return res.data[0] if res.data else None
 
 

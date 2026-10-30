@@ -848,6 +848,12 @@ elif st.session_state.step == "enter_code":
                     "Kodas neteisingas arba neatitinka tavo klasės."
                 )
 
+            elif assignment.get("student_ids") and st.session_state.student_id not in assignment["student_ids"]:
+
+                st.error(
+                    "Šis kodas skirtas ne tau. Pasitikrink kodą arba kreipkis į mokytoją."
+                )
+
             else:
 
                 existing = get_submission(
