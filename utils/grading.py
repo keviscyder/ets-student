@@ -17,11 +17,17 @@ _NUM = re.compile(r"-?\d+(?:\.\d+)?")
 
 def _canon(text: str):
     """Tekstas su vienodai užrašytais skaičiais ir tų skaičių sąrašas.
-    12,5 -> 12.5; 1 254 000 -> 1254000; 35.0 -> 35."""
-    t = re.sub(r"(?<=\d),(?=\d)", ".", text)
-    t = re.sub(r"(?<=\d)[ \u00a0\u202f](?=\d{3}(?!\d))", "", t)
+    12,5 -> 12.5; 1 254 000 -> 1254000; 35.0 -> 35; −5 -> -5;
+    „Q = 336 kJ“ -> „336kj“ (dydžio pavadinimas prieš = ir tarpai nesvarbūs)."""
+    t = (text or "").replace("\u2212", "-").replace("\u2013", "-").replace("\u2014", "-")
+    t = t.replace("°", "").replace("\u00a0", " ").replace("\u202f", " ")
+    t = re.sub(r"(?<=\d),(?=\d)", ".", t)
+    t = re.sub(r"(?<=\d) (?=\d{3}(?!\d))", "", t)
+    # „Q =“, „t1=“, „m =“ ... atsakymo pradžioje
+    t = re.sub(r"^\s*[a-ząčęėįšųūžα-ω]{1,4}[0-9]{0,2}\s*=\s*", "", t)
     nums = [float(x) for x in _NUM.findall(t)]
     t = _NUM.sub(lambda m: ("%.9f" % float(m.group())).rstrip("0").rstrip("."), t)
+    t = re.sub(r"\s+", "", t)
     return t, nums
 
 
@@ -35,10 +41,13 @@ def _best_similarity(submitted: str, accepted_variants: list[str]) -> float:
 def accepted_answers(question: dict) -> list[str]:
     """Priimtini trumpo atsakymo variantai (be rubrikos eilučių, prasidedančių #)."""
     raw_key = question.get("answer_key") or ""
-    return [
-        _normalize(v) for v in raw_key.split("\n")
-        if v.strip() and not v.strip().startswith("#")
-    ]
+    out = []
+    for line in raw_key.split("\n"):
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        # Keli variantai vienoje eilutėje: „336 kJ; 336000 J“ arba „a | b“
+        out += [_normalize(v) for v in re.split(r"[;|]", line) if v.strip()]
+    return out
 
 
 def is_open_question(question: dict) -> bool:
@@ -84,6 +93,9 @@ def auto_grade(question: dict, submitted_answer: str):
             v_c, v_n = _canon(v)
             if sub_c == v_c:
                 return points, "auto"
+            # Teisingas atsakymas – tik skaičius, mokinys pridėjo vienetus („336“ → „336 kJ“)
+            if v_n and v_n == sub_n and not re.search(r"[^\d.\-]", v_c) and len(sub_n) == 1:
+                return points, "auto"
             (same if v_n == sub_n else other).append(v_c)
         sim_same = _best_similarity(sub_c, same)
         sim_any = max(sim_same, _best_similarity(sub_c, other))
@@ -91,7 +103,8 @@ def auto_grade(question: dict, submitted_answer: str):
         if sim_same >= 0.9:
             # Tikėtina rašybos klaida žodyje, skaičiai tie patys - įskaitom automatiškai
             return points, "auto"
-        elif sim_any >= 0.6:
+        elif sim_any >= 0.6 or (same and sub_n):
+            # (skaičiai sutampa, bet kiti vienetai ar žodžiai – sprendžia mokytojas)
             # Neaišku (arba kitas skaičius) - palieku mokytojui peržiūrėti, ne automatiškai 0
             return None, "teacher"
         else:
