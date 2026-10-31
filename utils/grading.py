@@ -52,7 +52,7 @@ def accepted_answers(question: dict) -> list[str]:
 
 def is_open_question(question: dict) -> bool:
     """Trumpo atsakymo klausimas be teisingų atsakymų = atviras (vertina mokytojas)."""
-    return question.get("type") == "short_answer" and not accepted_answers(question)
+    return question.get("type") == "short_answer" and not accepted_answers(question) and not is_calc(question)
 
 
 def auto_grade(question: dict, submitted_answer: str):
@@ -71,6 +71,9 @@ def auto_grade(question: dict, submitted_answer: str):
     if q_type == "mcq":
         answer_key = _normalize(question.get("answer_key"))
         return (points if submitted == answer_key else 0), "auto"
+
+    if q_type == "short_answer" and is_calc(question):
+        return grade_calc(question, submitted_answer, question.get("_seed"))
 
     if q_type == "short_answer":
         # answer_key gali turėti kelis priimtinus variantus, kiekvienas naujoje eilutėje
@@ -213,3 +216,162 @@ def grade_game(question: dict, submitted: str):
         return points, "auto"
     score = round(points * right / len(res) * 2) / 2
     return score, "auto"
+
+
+# ------------------------------------------------------------
+# UŽDAVINIAI SU ATSITIKTINIAIS SKAIČIAIS
+# type = "short_answer", options = {"calc": {"vars": {"m": [2, 5, 0.5], ...},
+#   "formula": "4.2*m*(t2-t1)", "decimals": 1, "tol": 1, "unit": "kJ"}}
+# Klausimo tekste kintamieji rašomi {m}. Kiekvienas mokinys gauna savo
+# skaičius (pagal bandymo ir klausimo id), atsakymą sistema apskaičiuoja pati.
+# ------------------------------------------------------------
+
+import ast as _ast
+import math as _math
+import random as _random
+
+_CALC_FUNCS = {"sqrt": _math.sqrt, "sin": lambda x: _math.sin(_math.radians(x)),
+               "cos": lambda x: _math.cos(_math.radians(x)), "tan": lambda x: _math.tan(_math.radians(x)),
+               "abs": abs, "log": _math.log10, "ln": _math.log, "exp": _math.exp, "round": round}
+_CALC_CONST = {"pi": _math.pi, "g": 9.8}
+
+
+def calc_spec(q):
+    o = q.get("options")
+    return o.get("calc") if isinstance(o, dict) and isinstance(o.get("calc"), dict) else None
+
+
+def is_calc(q) -> bool:
+    return q.get("type") == "short_answer" and calc_spec(q) is not None
+
+
+def safe_eval(expr: str, values: dict) -> float:
+    """Apskaičiuoja formulę: tik skaičiai, kintamieji, + - * / ** ( ) ir kelios funkcijos."""
+    tree = _ast.parse((expr or "").replace("^", "**").replace("·", "*").replace(",", "."), mode="eval")
+
+    def ev(n):
+        if isinstance(n, _ast.Expression):
+            return ev(n.body)
+        if isinstance(n, _ast.Constant) and isinstance(n.value, (int, float)):
+            return float(n.value)
+        if isinstance(n, _ast.Name):
+            if n.id in values:
+                return float(values[n.id])
+            if n.id in _CALC_CONST:
+                return _CALC_CONST[n.id]
+            raise ValueError(f"Nežinomas kintamasis: {n.id}")
+        if isinstance(n, _ast.BinOp):
+            a, b = ev(n.left), ev(n.right)
+            ops = {_ast.Add: lambda: a + b, _ast.Sub: lambda: a - b, _ast.Mult: lambda: a * b,
+                   _ast.Div: lambda: a / b, _ast.Pow: lambda: a ** b}
+            for t, f in ops.items():
+                if isinstance(n.op, t):
+                    return f()
+        if isinstance(n, _ast.UnaryOp) and isinstance(n.op, (_ast.USub, _ast.UAdd)):
+            v = ev(n.operand)
+            return -v if isinstance(n.op, _ast.USub) else v
+        if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name) and n.func.id in _CALC_FUNCS and not n.keywords:
+            return float(_CALC_FUNCS[n.func.id](*[ev(a) for a in n.args]))
+        raise ValueError("Neleistina formulės dalis")
+    return ev(tree)
+
+
+def calc_values(q, seed: str) -> dict:
+    """Mokinio skaičiai: kiekvienam kintamajam [nuo, iki, žingsnis]."""
+    spec = calc_spec(q) or {}
+    rnd = _random.Random(f"calc_{seed}")
+    out = {}
+    for name, rng in (spec.get("vars") or {}).items():
+        try:
+            lo, hi = float(rng[0]), float(rng[1])
+            step = float(rng[2]) if len(rng) > 2 and float(rng[2]) > 0 else 1.0
+        except Exception:
+            continue
+        n = int(round((hi - lo) / step)) if hi > lo else 0
+        v = lo + step * rnd.randint(0, max(n, 0))
+        out[name] = round(v, 6)
+    return out
+
+
+def _num_lt(x, decimals=None):
+    if decimals is not None:
+        x = round(x, int(decimals))
+    s = ("%.6f" % x).rstrip("0").rstrip(".")
+    return s.replace(".", ",")
+
+
+def calc_answer(q, seed: str):
+    """(teisingas_atsakymas, mokinio_skaičiai) arba (None, skaičiai), jei formulė klaidinga."""
+    spec = calc_spec(q) or {}
+    vals = calc_values(q, seed)
+    try:
+        return safe_eval(spec.get("formula", ""), vals), vals
+    except Exception:
+        return None, vals
+
+
+def calc_prompt(q, seed: str) -> str:
+    """Klausimo tekstas su mokinio skaičiais vietoje {m}."""
+    vals = calc_values(q, seed)
+    text = q.get("prompt") or ""
+    for k, v in vals.items():
+        text = text.replace("{" + k + "}", _num_lt(v))
+    return text
+
+
+def calc_expected_text(q, seed: str) -> str:
+    spec = calc_spec(q) or {}
+    ans, vals = calc_answer(q, seed)
+    if ans is None:
+        return "formulės klaida"
+    unit = spec.get("unit") or ""
+    return f"{_num_lt(ans, spec.get('decimals', 2))} {unit}".strip()
+
+
+def grade_calc(q, submitted: str, seed: str):
+    points = q.get("points", 1)
+    if not seed:
+        return None, "teacher"
+    spec = calc_spec(q) or {}
+    ans, _ = calc_answer(q, seed)
+    if ans is None:
+        return None, "teacher"
+    _c, nums = _canon(_normalize(submitted))
+    if not nums:
+        return (0, "auto") if not (submitted or "").strip() else (None, "teacher")
+    got = nums[-1] if len(nums) > 1 and re.search(r"=", submitted or "") else nums[0]
+    tol = abs(float(spec.get("tol", 1))) / 100.0
+    ok = lambda v: abs(v - ans) <= max(abs(ans) * tol, 10 ** -(int(spec.get("decimals", 2)) + 1))
+    if ok(got):
+        return points, "auto"
+    if any(ok(got * f) for f in (1000, 0.001, 100, 0.01)):
+        return None, "teacher"   # gal kiti vienetai (J ↔ kJ) – sprendžia mokytojas
+    return 0, "auto"
+
+
+# ------------------------------------------------------------
+# ATSITIKTINIAI VARIANTAI: iš klausimų grupės kiekvienam mokiniui
+# parenkama po N klausimų (tests.pool_sizes = {"A": 10}, test_questions.pool = "A").
+# ------------------------------------------------------------
+
+def select_questions(tqs: list, pool_sizes, seed: str) -> list:
+    """Kurie testo klausimai tenka šiam mokiniui (tvarka išlaikoma).
+    Klausimai be grupės rodomi visiems."""
+    sizes = pool_sizes if isinstance(pool_sizes, dict) else {}
+    chosen = set()
+    groups = {}
+    for tq in tqs:
+        p = (tq.get("pool") or "").strip()
+        if p and int(sizes.get(p) or 0) > 0:
+            groups.setdefault(p, []).append(tq["id"])
+        else:
+            chosen.add(tq["id"])
+    for p, ids in groups.items():
+        n = min(int(sizes[p]), len(ids))
+        chosen.update(_random.Random(f"pool_{seed}_{p}").sample(sorted(ids), n))
+    return [tq for tq in tqs if tq["id"] in chosen]
+
+
+def with_seed(q: dict, submission_id, test_question_id) -> dict:
+    """Uždaviniui su atsitiktiniais skaičiais pridedama mokinio „sėkla“."""
+    return {**q, "_seed": f"{submission_id}_{test_question_id}"} if is_calc(q) else q

@@ -121,7 +121,8 @@ import utils.grading as _grading
 import utils.test_queries as _test_queries
 importlib.reload(_grading)
 importlib.reload(_test_queries)
-from utils.grading import auto_grade, is_open_question, GAME_KINDS, game_kind, game_results
+from utils.grading import (auto_grade, is_open_question, GAME_KINDS, game_kind, game_results,
+                           is_calc, calc_prompt, select_questions)
 from utils.test_queries import (
     get_all_classes,
     find_student_in_class,
@@ -927,13 +928,17 @@ elif st.session_state.step == "enter_code":
 
                     st.session_state.submission = submission
 
-                    st.session_state.test_questions = _prepare_test_state(
-                        submission,
-                        get_test_questions_for_student(
-                            supabase,
-                            assignment["test_id"],
-                        ),
+                    # Atsitiktiniai variantai: mokiniui tenka tik jo klausimai iš grupių
+                    _tqs = select_questions(
+                        get_test_questions_for_student(supabase, assignment["test_id"]),
+                        (assignment.get("tests") or {}).get("pool_sizes"),
+                        submission["id"],
                     )
+                    # Uždaviniams su atsitiktiniais skaičiais – mokinio „sėkla“
+                    for _tq in _tqs:
+                        _tq["question_bank"] = {**_tq["question_bank"], "_seed": f"{submission['id']}_{_tq['id']}"}
+
+                    st.session_state.test_questions = _prepare_test_state(submission, _tqs)
 
                     st.session_state.submit_requested = False
                     st.session_state.step = "taking_test"
@@ -1202,7 +1207,7 @@ elif st.session_state.step == "taking_test":
         st.divider()
 
         st.markdown(
-            f"**{q['prompt']}**  ({q['points']} tšk.)"
+            f"**{calc_prompt(q, q.get('_seed')) if is_calc(q) else q['prompt']}**  ({q['points']} tšk.)"
         )
 
 
@@ -1484,7 +1489,8 @@ elif st.session_state.step == "results":
         q = r["test_questions"]["question_bank"]
 
         st.divider()
-        st.markdown(f"**{i}. {q['prompt']}**")
+        _p = calc_prompt(q, f"{submission['id']}_{r.get('test_question_id')}") if is_calc(q) else q["prompt"]
+        st.markdown(f"**{i}. {_p}**")
 
         if q.get("prompt_image_url"):
             st.image(q["prompt_image_url"], width=350)

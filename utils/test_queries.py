@@ -61,11 +61,18 @@ def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):
             .eq("class_id", class_id)
             .execute()
         )
-    try:
-        # student_ids – kam skirtas papildomas atsiskaitymas / perrašymas (tuščia = visai klasei)
-        res = q(_ASG_COLS + ", student_ids")
-    except Exception:
-        res = q(_ASG_COLS)   # jei duomenų bazėje šio stulpelio dar nėra
+    # student_ids – kam skirtas papildomas atsiskaitymas / perrašymas (tuščia = visai klasei)
+    # pool_sizes – kiek klausimų iš kiekvienos grupės gauna mokinys
+    # (jei duomenų bazėje stulpelių dar nėra – bandoma be jų)
+    for cols in (_ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids",
+                 _ASG_COLS + ", student_ids", _ASG_COLS):
+        try:
+            res = q(cols)
+            break
+        except Exception:
+            res = None
+    if res is None:
+        res = q(_ASG_COLS)
     return res.data[0] if res.data else None
 
 
@@ -90,7 +97,7 @@ def get_submission_results(supabase: Client, submission_id: str):
         supabase.table("answers")
         .select(
             "test_question_id, text_answer, image_url, score, teacher_comment, "
-            "test_questions(order_idx, question_bank(prompt, prompt_image_url, points, type))"
+            "test_questions(order_idx, question_bank(prompt, prompt_image_url, points, type, options))"
         )
         .eq("submission_id", submission_id)
         .execute()
@@ -134,13 +141,18 @@ def get_or_create_submission(supabase: Client, assignment_id: str, student_id: s
 
 
 def get_test_questions_for_student(supabase: Client, test_id: str):
-    res = (
-        supabase.table("test_questions")
-        .select("id, order_idx, question_bank(*)")
-        .eq("test_id", test_id)
-        .order("order_idx")
-        .execute()
-    )
+    def q(cols):
+        return (
+            supabase.table("test_questions")
+            .select(cols)
+            .eq("test_id", test_id)
+            .order("order_idx")
+            .execute()
+        )
+    try:
+        res = q("id, order_idx, pool, question_bank(*)")   # pool – atsitiktinių variantų grupė
+    except Exception:
+        res = q("id, order_idx, question_bank(*)")
     return res.data
 
 
