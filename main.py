@@ -121,9 +121,13 @@ import utils.grading as _grading
 import utils.test_queries as _test_queries
 importlib.reload(_grading)
 importlib.reload(_test_queries)
-from utils.grading import (auto_grade, is_open_question, GAME_KINDS, game_kind, game_results,
+from utils.grading import (auto_grade, is_open_question, accepted_answers, GAME_KINDS, game_kind, game_results,
                            is_calc, calc_prompt, select_questions)
 from utils.test_queries import (
+    find_variant_test,
+    get_test_pool_sizes,
+    set_submission_test,
+    get_broadcast,
     get_all_classes,
     find_student_in_class,
     get_assignment_by_code,
@@ -617,7 +621,7 @@ def _fmt_points(x):
 def _reset_to_start():
     for key in [
         "class_id", "student_id", "student_name",
-        "assignment", "submission", "test_questions",
+        "assignment", "submission", "test_questions", "_acc",
     ]:
         st.session_state[key] = None
     st.session_state.submit_requested = False
@@ -679,6 +683,113 @@ def _save_and_submit():
     st.session_state.step = "submitted"
 
 st.title("E-testavimas")
+
+
+# ------------------------------------------------------------
+# PRITAIKYMAI MOKINIUI (disleksija, silpnesnis regėjimas ir kt.)
+# Įjungia mokytojas mokinio kortelėje. Taikoma tik šiam mokiniui.
+# ------------------------------------------------------------
+def _practice_check(tq, q):
+    """Pratybų režimas: „Patikrinti“ parodo, ar atsakymas teisingas. Po 2 klaidų parodomas teisingas."""
+    tid = tq["id"]
+    if q["type"] == "image_upload" or is_open_question(q):
+        st.caption("📝 Šį atsakymą peržiūrės mokytojas.")
+        return
+    chk = st.session_state.setdefault("_chk", {})
+    if st.button("Patikrinti", key=f"chk_{tid}"):
+        val = st.session_state.get(f"ans_{tid}")
+        if val in (None, ""):
+            chk[tid] = (None, chk.get(tid, (None, 0))[1])
+        else:
+            sc, by = auto_grade(q, val if isinstance(val, str) else str(val))
+            ok = by == "auto" and sc is not None and float(sc) >= float(q.get("points") or 1)
+            part = by == "auto" and sc and not ok
+            chk[tid] = ("ok" if ok else ("part" if part else ("teacher" if by == "teacher" else "bad")),
+                        chk.get(tid, (None, 0))[1] + (0 if ok else 1))
+    res, tries = chk.get(tid, (None, 0))
+    if res == "ok":
+        st.success("✅ Teisingai!")
+    elif res == "part":
+        st.warning("🟡 Iš dalies teisingai – pabandyk patobulinti.")
+    elif res == "teacher":
+        st.info("🤔 Atsakymą peržiūrės mokytojas.")
+    elif res == "bad":
+        st.error("❌ Dar ne. Pabandyk dar kartą.")
+    elif res is None and tid in chk:
+        st.caption("Pirma atsakyk, tada spausk „Patikrinti“.")
+    if res in ("bad", "part") and tries >= 2:
+        if q["type"] == "mcq":
+            right = q.get("answer_key")
+        elif is_calc(q):
+            from utils.grading import calc_expected_text
+            right = calc_expected_text(q, q.get("_seed"))
+        elif q["type"] == "short_answer":
+            right = (accepted_answers(q) or [""])[0]
+        else:
+            right = None
+        if right:
+            st.caption(f"Teisingas atsakymas: **{right}**")
+
+
+def _apply_accommodations():
+    acc = st.session_state.get("_acc") or {}
+    if not acc:
+        return
+    css = []
+    scale = int(acc.get("font_scale") or 100)
+    if scale > 100:
+        css.append(f"html {{ font-size: {scale}% !important; }}")
+    if acc.get("dyslexia_font"):
+        css.append("@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;600&display=swap');"
+                   ".stApp, .stApp p, .stApp label, .stApp input, .stApp textarea, .stApp button, .stApp li, .stApp span"
+                   " { font-family: 'Lexend', 'Verdana', sans-serif !important; letter-spacing: .04em; word-spacing: .12em; }"
+                   ".stApp em, .stApp i { font-style: normal !important; }")
+    if acc.get("line_spacing"):
+        css.append(".stApp p, .stApp label, .stApp li, .stApp textarea { line-height: 1.9 !important; }")
+    if acc.get("tint"):
+        css.append(".stApp, [data-testid='stAppViewContainer'] { background: #FBF5E6 !important; }"
+                   ".stApp textarea, .stApp input { background: #FFFDF7 !important; }")
+    if css:
+        st.markdown("<style>" + "".join(css) + "</style>", unsafe_allow_html=True)
+
+
+_apply_accommodations()
+
+
+@st.cache_data(max_entries=400, show_spinner=False)
+def _tts_audio(text: str, lang: str) -> bytes:
+    """Klausimo tekstas garsu (Google TTS). Atmintyje laikoma, kad nereikėtų generuoti iš naujo."""
+    import io as _io
+    from gtts import gTTS
+    buf = _io.BytesIO()
+    gTTS(text=text, lang=lang).write_to_fp(buf)
+    return buf.getvalue()
+
+
+def _speakable(q, prompt_text):
+    import re as _re
+    t = _re.sub(r"\$([^$]*)\$", r"\1", prompt_text or "")
+    t = t.replace("\\frac", " ").replace("\\cdot", " kart ").replace("**", "").replace("_", " ").replace("^", " laipsniu ")
+    t = _re.sub(r"[{}\\]", " ", t)
+    if q.get("type") == "mcq" and q.get("options"):
+        t += ". Atsakymų variantai: " + "; ".join(q["options"])
+    return " ".join(t.split())[:900]
+
+
+def _tts_button(q, prompt_text, key):
+    acc = st.session_state.get("_acc") or {}
+    if not acc.get("tts"):
+        return
+    lang = {"en": "en", "uk": "uk"}.get(acc.get("variant"), acc.get("tts_lang") or "lt")
+
+    @st.fragment
+    def _f():
+        if st.button("🔊 Klausyti", key=f"tts_{key}"):
+            try:
+                st.audio(_tts_audio(_speakable(q, prompt_text), lang), format="audio/mp3", autoplay=True)
+            except Exception:
+                st.caption("Nepavyko įjungti garso – paprašyk mokytojo pagalbos.")
+    _f()
 
 _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encoding="utf-8")
 _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="utf-8")
@@ -802,6 +913,8 @@ elif st.session_state.step == "enter_name":
 
                 st.session_state.student_id = match["id"]
                 st.session_state.student_name = match.get("display_name") or match["name"]
+                # Mokiniui pritaikyti nustatymai (šriftas, skaitymas balsu, papildomas laikas, testo versija)
+                st.session_state._acc = match.get("accommodations") or {}
                 st.session_state.step = "enter_code"
 
                 st.rerun()
@@ -928,10 +1041,25 @@ elif st.session_state.step == "enter_code":
 
                     st.session_state.submission = submission
 
+                    # Testo versija: lengvesnė ar kita kalba, jei mokytojas ją priskyrė mokiniui
+                    _test_id = assignment["test_id"]
+                    _pools = (assignment.get("tests") or {}).get("pool_sizes")
+                    if submission.get("test_id"):
+                        if submission["test_id"] != _test_id:
+                            _test_id = submission["test_id"]
+                            _pools = get_test_pool_sizes(supabase, _test_id)
+                    else:
+                        _var = (st.session_state.get("_acc") or {}).get("variant")
+                        _found = find_variant_test(supabase, _test_id, _var) if _var else None
+                        if _found and set_submission_test(supabase, submission["id"], _found[0]):
+                            _test_id, _pools = _found
+                            submission["test_id"] = _test_id
+                    st.session_state.test_id_used = _test_id
+
                     # Atsitiktiniai variantai: mokiniui tenka tik jo klausimai iš grupių
                     _tqs = select_questions(
-                        get_test_questions_for_student(supabase, assignment["test_id"]),
-                        (assignment.get("tests") or {}).get("pool_sizes"),
+                        get_test_questions_for_student(supabase, _test_id),
+                        _pools,
                         submission["id"],
                     )
                     # Uždaviniams su atsitiktiniais skaičiais – mokinio „sėkla“
@@ -984,6 +1112,19 @@ elif st.session_state.step == "taking_test":
 
     _heartbeat()
 
+    # Mokytojo pranešimas visoms planšetėms (pvz. „Liko 5 min.“)
+    @st.fragment(run_every=15)
+    def _broadcast():
+        b = get_broadcast(supabase, assignment["id"])
+        if not b or not (b.get("broadcast") or "").strip():
+            return
+        if st.session_state.get("_bc_seen") != b.get("broadcast_at"):
+            st.session_state["_bc_seen"] = b.get("broadcast_at")
+            st.toast("📢 " + b["broadcast"])
+        st.info("📢 **Mokytojas:** " + b["broadcast"])
+
+    _broadcast()
+
     # --------------------------------------------------------
     # IŠĖJIMO IŠ TESTO FIKSAVIMAS
     # Naršyklė praneša, kai testo langas paslepiamas (kita programa,
@@ -1007,6 +1148,8 @@ elif st.session_state.step == "taking_test":
     deadline_ts = (
         started_at.timestamp()
         + assignment["duration_minutes"] * 60
+        # papildomas laikas mokiniui (pvz. specialiųjų poreikių)
+        + int((st.session_state.get("_acc") or {}).get("extra_minutes") or 0) * 60
     )
 
     remaining = deadline_ts - time.time()
@@ -1206,9 +1349,11 @@ elif st.session_state.step == "taking_test":
 
         st.divider()
 
+        _ptext = calc_prompt(q, q.get('_seed')) if is_calc(q) else q['prompt']
         st.markdown(
-            f"**{calc_prompt(q, q.get('_seed')) if is_calc(q) else q['prompt']}**  ({q['points']} tšk.)"
+            f"**{_ptext}**  ({q['points']} tšk.)"
         )
+        _tts_button(q, _ptext, tq["id"])
 
 
         # ----------------------------------------------------
@@ -1331,6 +1476,10 @@ elif st.session_state.step == "taking_test":
         # ====================================================
 
         # (Juodraštis dabar vienas bendras – mygtukas „✏️ Juodraštis“ apačioje.)
+
+        # PRATYBOS: mokinys gali pasitikrinti atsakymą iškart
+        if assignment.get("kind") == "practice":
+            _practice_check(tq, q)
 
 
     st.session_state["_test_rendered"] = True

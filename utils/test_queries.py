@@ -31,12 +31,11 @@ def find_student_in_class(supabase: Client, class_id: str, full_name: str):
     typed = _name_tokens(full_name)
     if not typed:
         return None
-    rows = (
-        supabase.table("students")
-        .select("id, name, pin")
-        .eq("class_id", class_id)
-        .execute()
-    ).data or []
+    try:
+        # accommodations – mokiniui pritaikyti nustatymai (šriftas, laikas, testo versija)
+        rows = supabase.table("students").select("id, name, pin, accommodations").eq("class_id", class_id).execute().data or []
+    except Exception:
+        rows = supabase.table("students").select("id, name, pin").eq("class_id", class_id).execute().data or []
     for r in rows:
         stored = _name_tokens(r.get("name") or "")
         if sorted(stored) == sorted(typed):
@@ -64,7 +63,9 @@ def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):
     # student_ids – kam skirtas papildomas atsiskaitymas / perrašymas (tuščia = visai klasei)
     # pool_sizes – kiek klausimų iš kiekvienos grupės gauna mokinys
     # (jei duomenų bazėje stulpelių dar nėra – bandoma be jų)
-    for cols in (_ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids",
+    for cols in (_ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids, kind, broadcast, broadcast_at",
+                 _ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids, kind",
+                 _ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids",
                  _ASG_COLS + ", student_ids", _ASG_COLS):
         try:
             res = q(cols)
@@ -244,3 +245,42 @@ def update_submission_progress(supabase: Client, submission_id: str, data: dict)
         .eq("id", submission_id)
         .execute()
     )
+
+
+
+# ------------------------------------------------------------
+# PRITAIKYMAI, TESTO VERSIJOS, PRANEŠIMAI (veikia tik jei DB jau yra stulpeliai)
+# ------------------------------------------------------------
+
+def find_variant_test(supabase: Client, test_id: str, kind: str):
+    """Lengvesnė ar išversta testo versija (tests.variant_of = test_id). Grąžina (id, pool_sizes) arba None."""
+    try:
+        rows = (supabase.table("tests").select("id, pool_sizes").eq("variant_of", test_id).eq("variant_kind", kind)
+                .execute().data or [])
+        return (rows[0]["id"], rows[0].get("pool_sizes")) if rows else None
+    except Exception:
+        return None
+
+
+def get_test_pool_sizes(supabase: Client, test_id: str):
+    try:
+        rows = supabase.table("tests").select("pool_sizes").eq("id", test_id).execute().data or []
+        return rows[0].get("pool_sizes") if rows else None
+    except Exception:
+        return None
+
+
+def set_submission_test(supabase: Client, submission_id: str, test_id: str) -> bool:
+    try:
+        supabase.table("submissions").update({"test_id": test_id}).eq("id", submission_id).execute()
+        return True
+    except Exception:
+        return False
+
+
+def get_broadcast(supabase: Client, assignment_id: str):
+    try:
+        rows = supabase.table("assignments").select("broadcast, broadcast_at").eq("id", assignment_id).execute().data or []
+        return rows[0] if rows else None
+    except Exception:
+        return None
