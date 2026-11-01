@@ -65,3 +65,38 @@ def find_draft(supabase: Client, submission_id: str):
         if f.get("name") == f"{submission_id}.jpg":
             return supabase.storage.from_(BUCKET_NAME).get_public_url(f"{DRAFT_FOLDER}/{submission_id}.jpg")
     return None
+
+
+# ------------------------------------------------------------
+# Laikinos (pasirašytos) nuorodos – kad nuotraukų saugykla galėtų būti privati.
+# Duomenų bazėje lieka tos pačios nuorodos; rodant jos pakeičiamos laikinomis.
+# ------------------------------------------------------------
+import re as _re
+
+import streamlit as _st
+
+_PATH_RE = _re.compile(r"/storage/v1/object/(?:public|sign)/" + _re.escape(BUCKET_NAME) + r"/([^?]+)")
+_TTL = 3 * 3600
+
+
+@_st.cache_data(ttl=_TTL - 1800, show_spinner=False)
+def _signed(_supabase, path: str, version: str) -> str:
+    res = _supabase.storage.from_(BUCKET_NAME).create_signed_url(path, _TTL)
+    url = (res or {}).get("signedURL") or (res or {}).get("signedUrl") or ""
+    if url.startswith("/"):
+        import os
+        base = getattr(_supabase, "supabase_url", None) or os.environ.get("SUPABASE_URL", "")
+        url = str(base).rstrip("/") + "/storage/v1" + url
+    return url + (f"&v={version}" if version and url else "")
+
+
+def display_url(supabase, url):
+    """Nuoroda rodymui naršyklėje; jei pasirašyti nepavyksta – originali."""
+    m = _PATH_RE.search(url or "")
+    if not m:
+        return url
+    ver = url.split("?v=", 1)[1] if "?v=" in url else ""
+    try:
+        return _signed(supabase, m.group(1), ver) or url
+    except Exception:
+        return url

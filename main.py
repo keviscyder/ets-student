@@ -107,7 +107,7 @@ from utils.db import get_client
 import importlib as _il
 import utils.storage as _storage
 _il.reload(_storage)
-from utils.storage import upload_image, upload_draft, find_draft
+from utils.storage import upload_image, upload_draft, find_draft, display_url
 from utils.sketch import sketch_pad
 import utils.game as _game_mod
 _il.reload(_game_mod)
@@ -1295,7 +1295,7 @@ elif st.session_state.step == "taking_test":
         height=0,
     )
 
-    _draft_cfg = {"key": submission["id"], "url": st.session_state.get("_draft_url")}
+    _draft_cfg = {"key": submission["id"], "url": display_url(supabase, st.session_state.get("_draft_url"))}
     components.html(
         "<script>(function(){var P=window.parent;P.__etsDraftCfg="
         + json.dumps(_draft_cfg)
@@ -1363,7 +1363,7 @@ elif st.session_state.step == "taking_test":
         if q.get("prompt_image_url"):
 
             st.image(
-                q["prompt_image_url"],
+                display_url(supabase, q["prompt_image_url"]),
                 width=350,
             )
 
@@ -1446,10 +1446,10 @@ elif st.session_state.step == "taking_test":
             st.caption("✍️ Spręsk čia: rašyk pirštu arba rašikliu. Lapas išsaugomas automatiškai.")
             sketch_pad(
                 key=f"draw_{tq['id']}",
-                initial_url=(
+                initial_url=display_url(supabase, (
                     st.session_state.get("_img_urls", {}).get(tq["id"])
                     or st.session_state.get("_restored_img", {}).get(tq["id"])
-                ),
+                )),
             )
 
             st.text_input(
@@ -1642,11 +1642,11 @@ elif st.session_state.step == "results":
         st.markdown(f"**{i}. {_p}**")
 
         if q.get("prompt_image_url"):
-            st.image(q["prompt_image_url"], width=350)
+            st.image(display_url(supabase, q["prompt_image_url"]), width=350)
 
         if q["type"] == "image_upload":
             if r.get("image_url"):
-                st.image(r["image_url"], width=350, caption="Tavo sprendimas")
+                st.image(display_url(supabase, r["image_url"]), width=350, caption="Tavo sprendimas")
             else:
                 st.caption("Sprendimas neįkeltas.")
         elif q["type"] == "game":
