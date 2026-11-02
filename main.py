@@ -795,6 +795,31 @@ _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encodi
 _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="utf-8")
 _GUARD_JS = (Path(__file__).parent / "assets" / "typing_guard.js").read_text(encoding="utf-8")
 _FORM_JS = (Path(__file__).parent / "assets" / "formulas.js").read_text(encoding="utf-8")
+
+# Egzaminų formulynai: id -> (pavadinimas, puslapių paveikslėliai static/ aplanke)
+FORMULA_SHEETS = {
+    "fizika": ("Fizika", ["formulynas-1.jpg", "formulynas-2.jpg"]),
+    "matematika_a": ("Matematika A", ["formulynas-matematika_a-1.jpg", "formulynas-matematika_a-2.jpg"]),
+    "matematika_b": ("Matematika B", ["formulynas-matematika_b-1.jpg"]),
+    "chemija": ("Chemija", ["formulynas-chemija-1.jpg", "formulynas-chemija-2.jpg"]),
+    "inzinerija": ("Inžinerinės technologijos", ["formulynas-inzinerija-1.jpg"]),
+    "matematika_pupp": ("Matematika (PUPP)", ["formulynas-matematika_pupp-1.jpg"]),
+}
+
+
+def _formula_sheets(test: dict) -> list:
+    """Testui įjungti formulynai. Seni testai turi tik show_formulas (= fizika)."""
+    ids = test.get("formula_sheets")
+    if not isinstance(ids, list):
+        ids = ["fizika"] if test.get("show_formulas") else []
+    out = []
+    for i in ids:
+        if i in FORMULA_SHEETS:
+            t, pages = FORMULA_SHEETS[i]
+            pages = [p for p in pages if (Path(__file__).parent / "static" / p).exists()]
+            if pages:
+                out.append({"id": i, "t": t, "p": pages})
+    return out
 _BATT_JS = (Path(__file__).parent / "assets" / "battery.js").read_text(encoding="utf-8")
 if st.session_state.get("step") != "taking_test":
     # Ne testo metu skaičiuotuvo nerodom
@@ -1268,14 +1293,19 @@ elif st.session_state.step == "taking_test":
     # Piešiama tik planšetėje, į serverį siunčiama tik uždarius.
     # --------------------------------------------------------
 
-    # Formulynas (VBE fizikos priedas) – tik testuose, kuriems mokytojas jį įjungė
-    if (assignment.get("tests") or {}).get("show_formulas"):
+    # Formulynai (NŠA egzaminų priedai) – tik tie, kuriuos mokytojas įjungė testui
+    _sheets = _formula_sheets(assignment.get("tests") or {})
+    if _sheets:
+        _key = ",".join(s["id"] for s in _sheets)
         components.html(
-            "<script>(function(){var P=window.parent;"
-            "if(P.document.getElementById('ets-form-btn'))return;"
-            "var el=P.document.createElement('script');el.textContent="
+            "<script>(function(){var P=window.parent,D=P.document,b=D.getElementById('ets-form-btn');"
+            "if(b&&b.getAttribute('data-key')===" + json.dumps(_key) + ")return;"
+            "['ets-form-btn','ets-form'].forEach(function(i){var e=D.getElementById(i);if(e)e.remove();});"
+            "P.ETS_FORM_KEY=" + json.dumps(_key) + ";P.ETS_FORM_SHEETS="
+            + json.dumps([{"t": s["t"], "p": s["p"]} for s in _sheets], ensure_ascii=False)
+            + ";var el=D.createElement('script');el.textContent="
             + json.dumps(_FORM_JS)
-            + ";P.document.head.appendChild(el);})();</script>",
+            + ";D.head.appendChild(el);})();</script>",
             height=0,
         )
     else:

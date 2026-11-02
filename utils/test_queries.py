@@ -63,7 +63,8 @@ def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):
     # student_ids – kam skirtas papildomas atsiskaitymas / perrašymas (tuščia = visai klasei)
     # pool_sizes – kiek klausimų iš kiekvienos grupės gauna mokinys
     # (jei duomenų bazėje stulpelių dar nėra – bandoma be jų)
-    for cols in (_ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids, kind, broadcast, broadcast_at",
+    for cols in (_ASG_COLS.replace("show_formulas)", "show_formulas, formula_sheets, pool_sizes)") + ", student_ids, kind, broadcast, broadcast_at",
+                 _ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids, kind, broadcast, broadcast_at",
                  _ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids, kind",
                  _ASG_COLS.replace("show_formulas)", "show_formulas, pool_sizes)") + ", student_ids",
                  _ASG_COLS + ", student_ids", _ASG_COLS):
