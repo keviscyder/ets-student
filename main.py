@@ -347,6 +347,20 @@ def _prepare_test_state(submission, questions):
     išsaugotus atsakymus, juodraščius ir sprendimų lapus
     (pvz., jei nutrūko ryšys ar mokinys prisijungė iš naujo)."""
     saved_rows = get_saved_answers(supabase, submission["id"])
+    # Laboratorinio darbo dalims atsakymo eilutė sukuriama iš karto, kad vėliau
+    # (daug greitų laukelių pakeitimų) būtų tik atnaujinama ir neatsirastų dublių.
+    _new_lab = [tq for tq in questions if is_lab(tq["question_bank"]) and tq["id"] not in saved_rows]
+    if _new_lab:
+        try:
+            _rows = []
+            for tq in _new_lab:
+                _sc, _by = auto_grade(tq["question_bank"], "")
+                _rows.append({"submission_id": submission["id"], "test_question_id": tq["id"],
+                              "text_answer": "", "image_url": None, "score": _sc, "graded_by": _by})
+            insert_answers(supabase, _rows)
+            saved_rows = get_saved_answers(supabase, submission["id"])
+        except Exception:
+            pass
     st.session_state._answer_ids = {k: v["id"] for k, v in saved_rows.items()}
     st.session_state._saved = {}        # pagrindinis atsakymas
     st.session_state._saved_draft = {}  # juodraščio lapas
@@ -1363,13 +1377,14 @@ elif st.session_state.step == "taking_test":
         if st.session_state.get("_lab_sel") not in range(_n):
             st.session_state["_lab_sel"] = 0
 
-        def _lab_label(i):
-            _t = _labs[i]
-            _f, _tot = lab_filled(_t["question_bank"], st.session_state.get(f"ans_{_t['id']}"))
-            return f"{i + 1}/{_n}. {_t['question_bank']['prompt']}" + (f"  ·  {_f}/{_tot}" if _tot else "")
-
-        st.selectbox("Darbo dalis", list(range(_n)), format_func=_lab_label, key="_lab_sel")
+        # Pavadinimai turi nekisti: pasikeitus pasirinkimų tekstui Streamlit
+        # pasirinkimą grąžintų į pirmą dalį.
+        st.selectbox("Darbo dalis", list(range(_n)), key="_lab_sel",
+                     format_func=lambda i: f"{i + 1}/{_n}. {_labs[i]['question_bank']['prompt']}")
         _lab_cur = _labs[st.session_state["_lab_sel"]]["id"]
+        _f, _tot = lab_filled(_labs[st.session_state["_lab_sel"]]["question_bank"], st.session_state.get(f"ans_{_lab_cur}"))
+        if _tot:
+            st.caption(f"Užpildyta šioje dalyje: {_f} iš {_tot} laukelių")
 
     for tq in questions:
 
