@@ -184,15 +184,71 @@ def _graph(tid, bi, b, vals):
         if not data:
             st.caption("Įrašyk bent vieną tašką (X ir Y reikšmes) – jis atsiras grafike.")
             return
-        import altair as alt
-        import pandas as pd
-        df = pd.DataFrame(data)
-        base = alt.Chart(df).encode(
-            x=alt.X("x:Q", title=names[x]), y=alt.Y("y:Q", title=", ".join(names[c] for c in ys)),
-            color=alt.Color("Kreivė:N", scale=alt.Scale(range=["#1f2937", "#6b7280", "#9ca3af", "#374151"]), legend=alt.Legend(orient="bottom")),
-            shape="Kreivė:N")
-        st.altair_chart(base.mark_line(strokeWidth=1.5).encode(order="x:Q") + base.mark_point(size=60, filled=True),
-                        use_container_width=True)
+        try:
+            st.markdown(_svg_plot(data, names[x], ", ".join(names[c] for c in ys)), unsafe_allow_html=True)
+        except Exception:
+            st.caption("Grafiko nubraižyti nepavyko.")
+
+
+def _ticks(lo, hi, n=5):
+    import math
+    if hi <= lo:
+        hi = lo + 1
+    raw = (hi - lo) / n
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
+    a = math.floor(lo / step)
+    b = math.ceil(hi / step)
+    return [round(i * step, 10) for i in range(a, b + 1)]
+
+
+def _fmt(v):
+    t = f"{v:.3g}" if abs(v) < 1000 else f"{v:.0f}"
+    return t.replace(".", ",")
+
+
+def _svg_plot(data, xname, yname):
+    """Paprastas XY grafikas SVG (be papildomų bibliotekų – veikia ir senose planšetėse)."""
+    W, H, L, R, T, B = 640, 360, 64, 16, 16, 52
+    xs = [d["x"] for d in data]
+    yv = [d["y"] for d in data]
+    xt = _ticks(min(0, min(xs)), max(xs) * 1.05 or 1)
+    yt = _ticks(min(0, min(yv)), max(yv) * 1.08 or 1)
+    x0, x1, y0, y1 = xt[0], xt[-1], yt[0], yt[-1]
+    px = lambda v: L + (W - L - R) * (v - x0) / ((x1 - x0) or 1)
+    py = lambda v: H - B - (H - B - T) * (v - y0) / ((y1 - y0) or 1)
+    g = [f'<svg viewBox="0 0 {W} {H}" width="100%" style="background:#fff;border:1px solid #ccc;border-radius:4px" '
+         f'xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">']
+    for t in xt:
+        g.append(f'<line x1="{px(t):.1f}" y1="{T}" x2="{px(t):.1f}" y2="{H - B}" stroke="#e5e5e5"/>'
+                 f'<text x="{px(t):.1f}" y="{H - B + 16}" text-anchor="middle" fill="#333">{_fmt(t)}</text>')
+    for t in yt:
+        g.append(f'<line x1="{L}" y1="{py(t):.1f}" x2="{W - R}" y2="{py(t):.1f}" stroke="#e5e5e5"/>'
+                 f'<text x="{L - 6}" y="{py(t) + 4:.1f}" text-anchor="end" fill="#333">{_fmt(t)}</text>')
+    g.append(f'<path d="M{L} {T}V{H - B}H{W - R}" fill="none" stroke="#222" stroke-width="1.5"/>')
+    g.append(f'<text x="{(L + W - R) / 2}" y="{H - 10}" text-anchor="middle" fill="#111" font-weight="600">{html.escape(xname)}</text>')
+    g.append(f'<text transform="translate(14 {(T + H - B) / 2}) rotate(-90)" text-anchor="middle" fill="#111" font-weight="600">{html.escape(yname)}</text>')
+    series = []
+    for d in data:
+        if d["Kreivė"] not in series:
+            series.append(d["Kreivė"])
+    cols = ["#1f2937", "#6b7280", "#9ca3af", "#374151"]
+    dashes = ["", "6 4", "2 3", "8 3 2 3"]
+    for k, name in enumerate(series):
+        pts = sorted((d["x"], d["y"]) for d in data if d["Kreivė"] == name)
+        c = cols[k % 4]
+        if len(pts) > 1:
+            path = " ".join(f"{'M' if i == 0 else 'L'}{px(a):.1f} {py(b):.1f}" for i, (a, b) in enumerate(pts))
+            g.append(f'<path d="{path}" fill="none" stroke="{c}" stroke-width="2" stroke-dasharray="{dashes[k % 4]}"/>')
+        for a, b in pts:
+            if k % 2:
+                g.append(f'<rect x="{px(a) - 4:.1f}" y="{py(b) - 4:.1f}" width="8" height="8" fill="{c}"/>')
+            else:
+                g.append(f'<circle cx="{px(a):.1f}" cy="{py(b):.1f}" r="4.5" fill="{c}"/>')
+        if len(series) > 1:
+            g.append(f'<text x="{L + 10}" y="{T + 16 + 16 * k}" fill="{c}" font-weight="600">{"●■"[k % 2]} {html.escape(name)}</text>')
+    g.append("</svg>")
+    return "".join(g)
 
 
 def _table(tid, bi, b, vals):
