@@ -1045,7 +1045,7 @@ if st.session_state.step == "code":
     except Exception:
         pass
 
-    st.markdown(T("#### Įvesk mokytojo pasakytą kodą"))
+    st.markdown("#### Įvesk kodą")
     code = st.text_input("Kodas", value=_qp, max_chars=12, key="_code_in",
                          placeholder="pvz. 3K3TYR", label_visibility="collapsed")
     _go = st.button("Toliau", type="primary", use_container_width=True)
@@ -1184,7 +1184,7 @@ elif st.session_state.step == "enter_code":
     )
 
     code = st.text_input(
-        T("Įvesk mokytojo pasakytą testavimo kodą")
+        "Įvesk kodą"
     )
 
     if st.button("Pradėti testą", type="primary") and code:
