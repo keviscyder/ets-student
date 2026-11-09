@@ -13,7 +13,7 @@ def _normalize_name(name: str) -> str:
 
 
 def get_all_classes(supabase: Client):
-    return supabase.table("classes").select("id, name").order("name").execute().data
+    return supabase.table("classes").select("id, name, teacher_id").order("name").execute().data
 
 
 _LT = str.maketrans("ąčęėįšųūž", "aceeisuuz")

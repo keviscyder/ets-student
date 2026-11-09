@@ -122,6 +122,9 @@ import utils.test_queries as _test_queries
 import utils.lab as _lab_mod
 importlib.reload(_lab_mod)
 from utils.lab import is_lab, lab_sync, render_lab, filled as lab_filled
+import utils.terms as _terms_mod
+importlib.reload(_terms_mod)
+from utils.terms import T, filter_classes
 importlib.reload(_grading)
 importlib.reload(_test_queries)
 from utils.grading import (auto_grade, is_open_question, accepted_answers, GAME_KINDS, game_kind, game_results,
@@ -616,7 +619,7 @@ def _show_mcq_summary(submission_id):
     total = sum(float(r["test_questions"]["question_bank"].get("points") or 1) for r in mcq)
     right = sum(1 for r in mcq if float(r.get("score") or 0) > 0)
     st.subheader(f"Testiniai klausimai: {_fmt_points(got)} iš {_fmt_points(total)} tšk.")
-    st.caption(f"Teisingai atsakyta {right} iš {len(mcq)}. Atvirus klausimus ir uždavinius įvertins mokytojas.")
+    st.caption(T(f"Teisingai atsakyta {right} iš {len(mcq)}. Atvirus klausimus ir uždavinius įvertins mokytojas."))
 
 
 def _fmt_points(x):
@@ -700,7 +703,7 @@ def _practice_check(tq, q):
     """Pratybų režimas: „Patikrinti“ parodo, ar atsakymas teisingas. Po 2 klaidų parodomas teisingas."""
     tid = tq["id"]
     if q["type"] == "image_upload" or is_open_question(q):
-        st.caption("📝 Šį atsakymą peržiūrės mokytojas.")
+        st.caption(T("📝 Šį atsakymą peržiūrės mokytojas."))
         return
     chk = st.session_state.setdefault("_chk", {})
     if st.button("Patikrinti", key=f"chk_{tid}"):
@@ -719,7 +722,7 @@ def _practice_check(tq, q):
     elif res == "part":
         st.warning("🟡 Iš dalies teisingai – pabandyk patobulinti.")
     elif res == "teacher":
-        st.info("🤔 Atsakymą peržiūrės mokytojas.")
+        st.info(T("🤔 Atsakymą peržiūrės mokytojas."))
     elif res == "bad":
         st.error("❌ Dar ne. Pabandyk dar kartą.")
     elif res is None and tid in chk:
@@ -795,7 +798,7 @@ def _tts_button(q, prompt_text, key):
             try:
                 st.audio(_tts_audio(_speakable(q, prompt_text), lang), format="audio/mp3", autoplay=True)
             except Exception:
-                st.caption("Nepavyko įjungti garso – paprašyk mokytojo pagalbos.")
+                st.caption(T("Nepavyko įjungti garso – paprašyk mokytojo pagalbos."))
     _f()
 
 _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encoding="utf-8")
@@ -862,14 +865,14 @@ if _info["app"] or _info["tablet"]:
 
 if st.session_state.step == "select_class":
 
-    classes = get_all_classes(supabase)
+    classes = filter_classes(supabase, get_all_classes(supabase))
 
     if not classes:
-        st.error("Kol kas nėra sukurtų klasių.")
+        st.error(T("Kol kas nėra sukurtų klasių."))
         st.stop()
 
     class_id = st.selectbox(
-        "Pasirink savo klasę",
+        T("Pasirink savo klasę"),
         options=[c["id"] for c in classes],
         format_func=lambda x: next(
             c["name"] for c in classes if c["id"] == x
@@ -901,7 +904,7 @@ elif st.session_state.step == "enter_name":
         if match:
 
             st.success(
-                f"✅ {match.get('display_name') or match['name']} — rasta klasės sąraše"
+                T(f"✅ {match.get('display_name') or match['name']} — rasta klasės sąraše")
             )
 
             pin_ok = True
@@ -910,7 +913,7 @@ elif st.session_state.step == "enter_name":
                     "Tavo asmeninis kodas",
                     type="password",
                     max_chars=8,
-                    help="Kodą tau davė mokytojas.",
+                    help=T("Kodą tau davė mokytojas."),
                 )
                 pin_ok = pin.strip() == str(match["pin"]).strip()
                 if pin and not pin_ok:
@@ -929,8 +932,8 @@ elif st.session_state.step == "enter_name":
         else:
 
             st.warning(
-                "❌ Toks vardas nerastas šioje klasėje. "
-                "Patikrink rašybą arba kreipkis į mokytoją."
+                T("❌ Toks vardas nerastas šioje klasėje. "
+                  "Patikrink rašybą arba kreipkis į mokytoją.")
             )
 
     if st.button("← Atgal"):
@@ -950,7 +953,7 @@ elif st.session_state.step == "enter_code":
     )
 
     code = st.text_input(
-        "Įvesk mokytojo pasakytą testavimo kodą"
+        T("Įvesk mokytojo pasakytą testavimo kodą")
     )
 
     if st.button("Pradėti testą", type="primary") and code:
@@ -966,13 +969,13 @@ elif st.session_state.step == "enter_code":
             if not assignment:
 
                 st.error(
-                    "Kodas neteisingas arba neatitinka tavo klasės."
+                    T("Kodas neteisingas arba neatitinka tavo klasės.")
                 )
 
             elif assignment.get("student_ids") and st.session_state.student_id not in assignment["student_ids"]:
 
                 st.error(
-                    "Šis kodas skirtas ne tau. Pasitikrink kodą arba kreipkis į mokytoją."
+                    T("Šis kodas skirtas ne tau. Pasitikrink kodą arba kreipkis į mokytoją.")
                 )
 
             else:
@@ -993,8 +996,8 @@ elif st.session_state.step == "enter_code":
                         st.rerun()
 
                     st.info(
-                        "Tu jau atlikai šį testą. Rezultatus pamatysi, "
-                        "kai mokytojas juos paskelbs."
+                        T("Tu jau atlikai šį testą. Rezultatus pamatysi, "
+                          "kai mokytojas juos paskelbs.")
                     )
                     st.stop()
 
@@ -1027,18 +1030,18 @@ elif st.session_state.step == "enter_code":
                     if submission["status"] == "submitted":
 
                         st.info(
-                            "Tu jau atlikai šį testą. "
-                            "Rezultatai perduoti mokytojui."
+                            T("Tu jau atlikai šį testą. "
+                              "Rezultatai perduoti mokytojui.")
                         )
 
                         st.stop()
 
                     if _busy_elsewhere(submission):
                         st.error(
-                            "🔒 Šis mokinys jau sprendžia testą kitame įrenginyje. "
-                            "Testą galima spręsti tik viename įrenginyje. "
-                            "Jei tai tu ir planšetė sugedo – palauk 2 minutes ir bandyk dar kartą "
-                            "arba kreipkis į mokytoją."
+                            T("🔒 Šis mokinys jau sprendžia testą kitame įrenginyje. "
+                              "Testą galima spręsti tik viename įrenginyje. "
+                              "Jei tai tu ir įrenginys sugedo – palauk 2 minutes ir bandyk dar kartą "
+                              "arba kreipkis į mokytoją.")
                         )
                         st.stop()
 
@@ -1128,7 +1131,7 @@ elif st.session_state.step == "taking_test":
         if st.session_state.get("_bc_seen") != b.get("broadcast_at"):
             st.session_state["_bc_seen"] = b.get("broadcast_at")
             st.toast("📢 " + b["broadcast"])
-        st.info("📢 **Mokytojas:** " + b["broadcast"])
+        st.info(T("📢 **Mokytojas:** ") + b["broadcast"])
 
     _broadcast()
 
@@ -1635,7 +1638,7 @@ elif st.session_state.step == "other_device":
 elif st.session_state.step == "submitted":
 
     st.success(
-        "Testas pateiktas! Rezultatai bus perduoti mokytojui."
+        T("Testas pateiktas! Rezultatai bus perduoti mokytojui.")
     )
 
     if st.session_state.get("submission"):
@@ -1723,7 +1726,7 @@ elif st.session_state.step == "results":
             )
 
         if r.get("teacher_comment"):
-            st.caption(f"Mokytojo komentaras: {r['teacher_comment']}")
+            st.caption(T(f"Mokytojo komentaras: {r['teacher_comment']}"))
 
     st.divider()
 
