@@ -1050,8 +1050,8 @@ if st.session_state.step == "code":
             st.session_state._code = code.strip().upper()
             st.session_state.step = "pick_name"
             st.rerun()
-    st.write("")
-    st.button(T("Neturiu kodo – rinktis klasę"), on_click=_goto, args=("select_class",))
+    # Platforma naudojasi kelios įstaigos, todėl visų klasių sąrašo nerodom:
+    # klasė nustatoma pagal kodą (kodai unikalūs visoje platformoje).
 
 
 elif st.session_state.step == "pick_name":
