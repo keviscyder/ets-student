@@ -298,6 +298,11 @@ def render_lab(tq, sketch_pad=None, img_url=None):
         elif t == "text":
             st.text_area("Atsakymas", key=_ensure(tid, f"b{i}", vals), height=40 + 26 * int(b.get("rows") or 3),
                          placeholder="Rašyk čia…", label_visibility="collapsed")
-        elif t == "pad" and sketch_pad is not None:
-            st.caption("✍️ Nubraižyk schemą pirštu arba rašikliu. Brėžinys išsaugomas automatiškai.")
-            sketch_pad(key=f"draft_{tid}", initial_url=img_url, height=520)
+        elif t == "pad":
+            st.caption("✍️ Schemos ir grafiko lapas: elektros elementai, laidai, ašys ir taškai. Brėžinys išsaugomas automatiškai.")
+            try:
+                from utils.sketch import circuit_pad
+                circuit_pad(key=f"draft_{tid}", initial_url=img_url, height=520)
+            except Exception:
+                if sketch_pad is not None:
+                    sketch_pad(key=f"draft_{tid}", initial_url=img_url, height=520)

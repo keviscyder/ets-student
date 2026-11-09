@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<!-- Schemų ir grafikų lapas laboratoriniams darbams.
+     Elementai dedami į tinklelio taškus, laidai lenkiami stačiu kampu,
+     grafikams – ašys, taškai ir tiesės. Rezultatas grąžinamas paveikslėliu,
+     kaip ir rašymo lape (utils/sketch.py). Kodas be naujos JS sintaksės –
+     veikia ir senose planšetėse. -->
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: "Source Sans Pro", Arial, sans-serif; color: #1e293b; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 3px 0; }
+  .b { font-size: 14px; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #1e293b;
+       cursor: pointer; user-select: none; -webkit-user-select: none; display: inline-flex; align-items: center; gap: 5px; line-height: 1.2; }
+  .b.on { background: #1e293b; color: #fff; border-color: #1e293b; }
+  .b.on canvas { filter: invert(1); }
+  .b canvas { display: block; }
+  .grp { font-size: 12px; color: #64748b; margin: 0 2px 0 6px; }
+  .sep { width: 1px; height: 26px; background: #e2e8f0; margin: 0 3px; }
+  #pal { border-top: 1px solid #e2e8f0; margin-top: 3px; padding-top: 6px; }
+  #wrap { position: relative; border: 1px solid #94a3b8; border-radius: 6px; overflow: hidden; background: #fff; margin-top: 6px; }
+  #c { display: block; touch-action: none; }
+  #st { font-size: 13px; color: #64748b; margin-left: auto; }
+  #hint { font-size: 13px; color: #475569; padding: 4px 0 0; min-height: 18px; }
+  #txt { position: absolute; display: none; font-size: 16px; padding: 3px 6px; border: 2px solid #1d4ed8; border-radius: 4px; width: 160px; }
+</style>
+</head>
+<body>
+<div class="row" id="modes">
+  <span class="b on" data-m="el">⚡ Elementai</span>
+  <span class="b" data-m="wire">┐ Laidas</span>
+  <span class="b" data-m="text">T Tekstas</span>
+  <span class="b" data-m="pen">✏️ Pieštukas</span>
+  <span class="sep"></span>
+  <span class="b" data-m="axes">📈 Ašys</span>
+  <span class="b" data-m="point">• Taškas</span>
+  <span class="b" data-m="line">╱ Tiesė</span>
+  <span class="sep"></span>
+  <span class="b" data-m="move">✥ Perkelti</span>
+  <span class="b" data-m="del">✖ Trinti</span>
+  <span class="b" id="rot" title="Pasukti pažymėtą elementą 90°">⟳ Pasukti</span>
+  <span class="b" id="undo">↶ Atgal</span>
+  <span class="b" id="clear">🗑 Išvalyti</span>
+  <span class="b" id="more">➕ Vietos</span>
+  <span id="st"></span>
+</div>
+<div class="row" id="pal"></div>
+<div id="hint"></div>
+<div id="wrap"><canvas id="c"></canvas><input id="txt" type="text" placeholder="Tekstas, Enter"></div>
+<script>
+(function () {
+  var C = document.getElementById('c'), X = C.getContext('2d');
+  var W = 0, H = 520, G = 25;                       // tinklelio žingsnis
+  var objs = [], undoStack = [], mode = 'el', elType = 'R', sel = -1;
+  var drag = null, bg = null, bgUrl = null, cleared = false, penSeen = false;
+  var sendTimer = null, counter = 0, INK = '#111827', SEL = '#1d4ed8';
+
+  /* ---------------- elementai ---------------- */
+  var EL = [
+    ['R', 'Rezistorius'], ['RV', 'Kintamas R'], ['V', 'Voltmetras'], ['A', 'Ampermetras'],
+    ['E', 'Šaltinis'], ['PV', 'Saulės modulis'], ['L', 'Lempa'], ['M', 'Variklis'],
+    ['S', 'Jungiklis'], ['D', 'Diodas'], ['Cap', 'Kondensatorius'],
+    ['EZ', 'Elektrolizeris'], ['FC', 'Kuro elementas'], ['BOX', 'Blokas'], ['N', 'Mazgas'], ['GND', 'Įžeminimas']
+  ];
+  var NAMES = {}; for (var i = 0; i < EL.length; i++) NAMES[EL[i][0]] = EL[i][1];
+
+  function lead(c, a, b) { c.beginPath(); c.moveTo(a, 0); c.lineTo(b, 0); c.stroke(); }
+  var ROT = 0;   // dabartinio elemento pasukimas – raidės visada rašomos tiesiai
+  function upright(c, t, font, x, y) {
+    c.save(); c.translate(x || 0, y || 0); c.rotate(-ROT * Math.PI / 2); c.fillStyle = c.strokeStyle; c.font = font;
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t, 0, 1); c.restore();
+  }
+  function circ(c, r, t) {
+    c.beginPath(); c.arc(0, 0, r, 0, 7); c.fillStyle = '#fff'; c.fill(); c.stroke();
+    if (t) upright(c, t, 'bold 18px Arial');
+  }
+  function arrow(c, x1, y1, x2, y2, s) {
+    c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+    var a = Math.atan2(y2 - y1, x2 - x1);
+    c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - s * Math.cos(a - .45), y2 - s * Math.sin(a - .45));
+    c.lineTo(x2 - s * Math.cos(a + .45), y2 - s * Math.sin(a + .45)); c.closePath(); c.fillStyle = c.strokeStyle; c.fill();
+  }
+  function box(c, w, h, t) {
+    c.fillStyle = '#fff'; c.fillRect(-w / 2, -h / 2, w, h); c.strokeRect(-w / 2, -h / 2, w, h);
+    if (t) upright(c, t, 'bold 13px Arial');
+  }
+  // Elementas piešiamas horizontaliai, gnybtai taškuose (-50,0) ir (50,0).
+  function shape(c, t, label) {
+    switch (t) {
+      case 'R': lead(c, -50, -25); lead(c, 25, 50); box(c, 50, 18); break;
+      case 'RV': lead(c, -50, -25); lead(c, 25, 50); box(c, 50, 18); arrow(c, -24, 18, 26, -20, 9); break;
+      case 'V': case 'A': case 'M': lead(c, -50, -18); lead(c, 18, 50); circ(c, 18, t); break;
+      case 'L': lead(c, -50, -16); lead(c, 16, 50); circ(c, 16);
+        c.beginPath(); c.moveTo(-11, -11); c.lineTo(11, 11); c.moveTo(11, -11); c.lineTo(-11, 11); c.stroke(); break;
+      case 'E': lead(c, -50, -5); lead(c, 5, 50);
+        c.beginPath(); c.moveTo(-5, -18); c.lineTo(-5, 18); c.stroke();
+        c.save(); c.lineWidth = 5; c.beginPath(); c.moveTo(5, -9); c.lineTo(5, 9); c.stroke(); c.restore();
+        upright(c, '+', '14px Arial', -14, -14); break;
+      case 'PV': lead(c, -50, -18); lead(c, 18, 50); box(c, 36, 36);
+        c.beginPath(); c.moveTo(-18, 18); c.lineTo(18, -18); c.stroke();
+        arrow(c, -30, -34, -16, -22, 6); arrow(c, -20, -38, -6, -26, 6);
+        upright(c, '+', '13px Arial', -26, 12); break;
+      case 'S': lead(c, -50, -16); lead(c, 16, 50);
+        c.beginPath(); c.arc(-16, 0, 3, 0, 7); c.fill(); c.beginPath(); c.arc(16, 0, 3, 0, 7); c.stroke();
+        c.beginPath(); c.moveTo(-16, 0); c.lineTo(14, -16); c.stroke(); break;
+      case 'D': lead(c, -50, -10); lead(c, 12, 50);
+        c.beginPath(); c.moveTo(-10, -12); c.lineTo(-10, 12); c.lineTo(12, 0); c.closePath(); c.fillStyle = c.strokeStyle; c.fill();
+        c.beginPath(); c.moveTo(12, -12); c.lineTo(12, 12); c.stroke(); break;
+      case 'Cap': lead(c, -50, -5); lead(c, 5, 50);
+        c.beginPath(); c.moveTo(-5, -16); c.lineTo(-5, 16); c.moveTo(5, -16); c.lineTo(5, 16); c.stroke(); break;
+      case 'EZ': lead(c, -50, -30); lead(c, 30, 50); box(c, 60, 36, 'H₂O'); break;
+      case 'FC': lead(c, -50, -30); lead(c, 30, 50); box(c, 60, 36, 'FC'); break;
+      case 'BOX': lead(c, -50, -30); lead(c, 30, 50); box(c, 60, 36, label || ''); break;
+      case 'N': c.beginPath(); c.arc(0, 0, 5, 0, 7); c.fillStyle = c.strokeStyle; c.fill(); break;
+      case 'GND': c.beginPath(); c.moveTo(0, -25); c.lineTo(0, 0); c.moveTo(-16, 0); c.lineTo(16, 0);
+        c.moveTo(-10, 6); c.lineTo(10, 6); c.moveTo(-4, 12); c.lineTo(4, 12); c.stroke(); break;
+    }
+  }
+
+  /* ---------------- piešimas ---------------- */
+  function paper() {
+    X.setTransform(1, 0, 0, 1, 0, 0);
+    X.fillStyle = '#fff'; X.fillRect(0, 0, W, H);
+    X.strokeStyle = '#e2e8f0'; X.lineWidth = 1;
+    for (var x = G; x < W; x += G) { X.beginPath(); X.moveTo(x + .5, 0); X.lineTo(x + .5, H); X.stroke(); }
+    for (var y = G; y < H; y += G) { X.beginPath(); X.moveTo(0, y + .5); X.lineTo(W, y + .5); X.stroke(); }
+    if (bg && !cleared) X.drawImage(bg, 0, 0, W, bg.height * W / bg.width);
+  }
+  function drawObj(o, hi) {
+    var col = hi ? SEL : (o.color || INK);
+    X.save(); X.strokeStyle = col; X.fillStyle = col; X.lineWidth = 2.2; X.lineCap = 'round'; X.lineJoin = 'round';
+    if (o.k === 'el') {
+      X.translate(o.x, o.y); X.rotate(o.r * Math.PI / 2); ROT = o.r; shape(X, o.t, o.label); ROT = 0;
+    } else if (o.k === 'wire') {
+      X.beginPath(); X.moveTo(o.p[0][0], o.p[0][1]);
+      for (var i = 1; i < o.p.length; i++) X.lineTo(o.p[i][0], o.p[i][1]); X.stroke();
+    } else if (o.k === 'pen') {
+      X.lineWidth = 2.5; X.beginPath(); X.moveTo(o.p[0][0], o.p[0][1]);
+      if (o.p.length === 1) X.lineTo(o.p[0][0] + .1, o.p[0][1]);
+      for (var j = 1; j < o.p.length; j++) X.lineTo(o.p[j][0], o.p[j][1]); X.stroke();
+    } else if (o.k === 'line') {
+      X.beginPath(); X.moveTo(o.a[0], o.a[1]); X.lineTo(o.b[0], o.b[1]); X.stroke();
+    } else if (o.k === 'pt') {
+      X.beginPath(); X.arc(o.x, o.y, 4.5, 0, 7); X.fill();
+    } else if (o.k === 'text') {
+      X.font = '17px Arial'; X.textBaseline = 'middle'; X.fillText(o.s, o.x, o.y);
+    } else if (o.k === 'axes') {
+      var x0 = o.x0, y0 = o.y0, x1 = o.x1, y1 = o.y1;
+      arrow(X, x0, y0, x1 + 10, y0, 10); arrow(X, x0, y0, x0, y1 - 10, 10);
+      X.lineWidth = 1.5;
+      for (var tx = x0 + 2 * G; tx < x1; tx += 2 * G) { X.beginPath(); X.moveTo(tx, y0 - 4); X.lineTo(tx, y0 + 4); X.stroke(); }
+      for (var ty = y0 - 2 * G; ty > y1; ty -= 2 * G) { X.beginPath(); X.moveTo(x0 - 4, ty); X.lineTo(x0 + 4, ty); X.stroke(); }
+      X.font = '15px Arial'; X.textBaseline = 'middle';
+      X.fillText('0', x0 - 14, y0 + 12);
+    }
+    X.restore();
+  }
+  function redraw(extra) {
+    paper();
+    for (var i = 0; i < objs.length; i++) drawObj(objs[i], i === sel);
+    if (extra) drawObj(extra, false);
+  }
+
+  /* ---------------- pagalbinės ---------------- */
+  function pos(e) { var r = C.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+  function snap(p) { return [Math.round(p[0] / G) * G, Math.round(p[1] / G) * G]; }
+  function elbow(a, b) {   // laidas stačiu kampu: pirma ilgesne kryptimi
+    if (a[0] === b[0] || a[1] === b[1]) return [a, b];
+    return Math.abs(b[0] - a[0]) >= Math.abs(b[1] - a[1]) ? [a, [b[0], a[1]], b] : [a, [a[0], b[1]], b];
+  }
+  function segDist(p, a, b) {
+    var dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy, t = L ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L : 0;
+    t = Math.max(0, Math.min(1, t)); var x = a[0] + t * dx - p[0], y = a[1] + t * dy - p[1]; return Math.sqrt(x * x + y * y);
+  }
+  function hit(p) {
+    for (var i = objs.length - 1; i >= 0; i--) {
+      var o = objs[i], j;
+      if (o.k === 'el') {
+        var dx = p[0] - o.x, dy = p[1] - o.y, rx = o.r % 2 ? dy : dx, ry = o.r % 2 ? dx : dy;
+        if (Math.abs(rx) <= 50 && Math.abs(ry) <= 24) return i;
+      } else if (o.k === 'wire' || o.k === 'pen') {
+        for (j = 1; j < o.p.length; j++) if (segDist(p, o.p[j - 1], o.p[j]) < 9) return i;
+        if (o.p.length === 1 && segDist(p, o.p[0], o.p[0]) < 9) return i;
+      } else if (o.k === 'line') { if (segDist(p, o.a, o.b) < 9) return i; }
+      else if (o.k === 'pt') { if (segDist(p, [o.x, o.y], [o.x, o.y]) < 10) return i; }
+      else if (o.k === 'text') { X.font = '17px Arial'; var w = X.measureText(o.s).width;
+        if (p[0] >= o.x - 4 && p[0] <= o.x + w + 4 && Math.abs(p[1] - o.y) < 13) return i; }
+      else if (o.k === 'axes') { if (segDist(p, [o.x0, o.y0], [o.x1, o.y0]) < 9 || segDist(p, [o.x0, o.y0], [o.x0, o.y1]) < 9) return i; }
+    }
+    return -1;
+  }
+  function push() { undoStack.push(JSON.stringify(objs)); if (undoStack.length > 60) undoStack.shift(); }
+  function shift(o, dx, dy) {
+    if (o.k === 'el' || o.k === 'pt' || o.k === 'text') { o.x += dx; o.y += dy; }
+    else if (o.k === 'line') { o.a = [o.a[0] + dx, o.a[1] + dy]; o.b = [o.b[0] + dx, o.b[1] + dy]; }
+    else if (o.k === 'axes') { o.x0 += dx; o.x1 += dx; o.y0 += dy; o.y1 += dy; }
+    else for (var i = 0; i < o.p.length; i++) o.p[i] = [o.p[i][0] + dx, o.p[i][1] + dy];
+  }
+
+  /* ---------------- įvykiai ---------------- */
+  var txtAt = null;
+  function askText(p) {
+    var t = document.getElementById('txt');
+    txtAt = p; t.value = ''; t.style.left = Math.min(p[0], W - 175) + 'px'; t.style.top = Math.max(0, p[1] - 16) + 'px';
+    t.style.display = 'block'; t.focus(); setTimeout(function () { t.focus(); }, 30);
+  }
+  function commitText() {
+    var t = document.getElementById('txt'), s = t.value.replace(/^\s+|\s+$/g, '');
+    t.style.display = 'none';
+    if (s && txtAt) {
+      push();
+      if (txtAt.box !== undefined) objs[txtAt.box].label = s;
+      else objs.push({ k: 'text', x: txtAt[0], y: txtAt[1], s: s });
+      redraw(); changed();
+    }
+    txtAt = null;
+  }
+  document.getElementById('txt').addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.keyCode === 13) commitText(); });
+  document.getElementById('txt').addEventListener('blur', commitText);
+
+  C.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'pen') penSeen = true;
+    if (penSeen && e.pointerType === 'touch') return;     // delnas, kai rašoma rašikliu
+    e.preventDefault();
+    if (txtAt) commitText();
+    var p = pos(e), s = snap(p), h;
+    C.setPointerCapture(e.pointerId);
+    if (mode === 'el') {
+      h = hit(p);
+      if (h >= 0 && objs[h].k === 'el') { sel = h; push(); drag = { k: 'move', i: h, from: s, moved: false }; redraw(); return; }
+      push();
+      var o = { k: 'el', t: elType, x: s[0], y: s[1], r: 0 };
+      objs.push(o); sel = objs.length - 1; redraw(); changed();
+      if (elType === 'BOX') askText({ 0: s[0], 1: s[1], box: sel, length: 2 }), positionBox(s);
+      return;
+    }
+    if (mode === 'move') { h = hit(p); if (h >= 0) { sel = h; push(); drag = { k: 'move', i: h, from: s, moved: false }; redraw(); } return; }
+    if (mode === 'del') { h = hit(p); if (h >= 0) { push(); objs.splice(h, 1); sel = -1; redraw(); changed(); } return; }
+    if (mode === 'text') { askText(p); return; }
+    if (mode === 'point') { push(); objs.push({ k: 'pt', x: s[0], y: s[1] }); redraw(); changed(); return; }
+    if (mode === 'wire') { drag = { k: 'wire', a: s }; return; }
+    if (mode === 'line') { drag = { k: 'line', a: s }; return; }
+    if (mode === 'axes') { drag = { k: 'axes', a: s }; return; }
+    if (mode === 'pen') { drag = { k: 'pen', o: { k: 'pen', p: [p] } }; return; }
+  });
+  function positionBox(s) {
+    var t = document.getElementById('txt'); t.placeholder = 'Bloko pavadinimas, Enter';
+    t.style.left = Math.min(Math.max(0, s[0] - 80), W - 175) + 'px'; t.style.top = Math.max(0, s[1] + 26) + 'px';
+  }
+  C.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    e.preventDefault();
+    var p = pos(e), s = snap(p);
+    if (drag.k === 'move') {
+      var dx = s[0] - drag.from[0], dy = s[1] - drag.from[1];
+      if (dx || dy) { shift(objs[drag.i], dx, dy); drag.from = s; drag.moved = true; redraw(); }
+    } else if (drag.k === 'wire') { redraw({ k: 'wire', p: elbow(drag.a, s) }); }
+    else if (drag.k === 'line') { redraw({ k: 'line', a: drag.a, b: s }); }
+    else if (drag.k === 'axes') { redraw(axesFrom(drag.a, s)); }
+    else if (drag.k === 'pen') {
+      var evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      for (var i = 0; i < evs.length; i++) drag.o.p.push(pos(evs[i]));
+      drawObj(drag.o, false);
+    }
+  });
+  function axesFrom(a, b) {
+    return { k: 'axes', x0: Math.min(a[0], b[0]), y0: Math.max(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.min(a[1], b[1]) };
+  }
+  function up(e) {
+    if (!drag) return;
+    var p = e ? pos(e) : null, s = p ? snap(p) : null, d = drag; drag = null;
+    if (d.k === 'move') { if (d.moved) changed(); else undoStack.pop(); return; }
+    if (!s) { redraw(); return; }
+    if (d.k === 'wire' && (s[0] !== d.a[0] || s[1] !== d.a[1])) { push(); objs.push({ k: 'wire', p: elbow(d.a, s) }); }
+    else if (d.k === 'line' && (s[0] !== d.a[0] || s[1] !== d.a[1])) { push(); objs.push({ k: 'line', a: d.a, b: s }); }
+    else if (d.k === 'axes') { var ax = axesFrom(d.a, s); if (ax.x1 - ax.x0 >= 2 * G && ax.y0 - ax.y1 >= 2 * G) { push(); objs.push(ax); } }
+    else if (d.k === 'pen') { push(); objs.push(d.o); }
+    else { redraw(); return; }
+    redraw(); changed();
+  }
+  C.addEventListener('pointerup', up);
+  C.addEventListener('pointercancel', function () { drag = null; redraw(); });
+
+  /* ---------------- įrankių juosta ---------------- */
+  var HINTS = {
+    el: 'Pasirink elementą žemiau ir bakstelėk lape. Ką tik padėtas elementas pažymėtas mėlynai – „Pasukti“ jį pasuka. Padėtą elementą galima tempti.',
+    wire: 'Vesk pirštu nuo vieno gnybto iki kito – laidas nusities tinklelio linijomis.',
+    text: 'Bakstelėk, kur rašyti (pvz. R1, U = 12 V, I, A), ir spausk Enter.',
+    pen: 'Laisvas piešimas pirštu ar rašikliu.',
+    axes: 'Grafiko ašys: vesk įstrižai nuo pradžios taško (apačioje kairėje) į viršų dešinėn. Ašių pavadinimus užrašyk su „Tekstas“.',
+    point: 'Bakstelėk – atsiras matavimo taškas.',
+    line: 'Vesk – nubrėš tiesę tarp dviejų taškų (kreivei per taškus naudok „Pieštukas“).',
+    move: 'Tempk elementą, laidą ar tekstą į kitą vietą.',
+    del: 'Bakstelėk ant to, ką nori ištrinti.'
+  };
+  function setMode(m) {
+    mode = m;
+    var bs = document.querySelectorAll('#modes [data-m]');
+    for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', bs[i].getAttribute('data-m') === m);
+    document.getElementById('hint').textContent = HINTS[m] || '';
+    if (m !== 'el' && m !== 'move') { sel = -1; redraw(); }
+    setHeight();
+  }
+  var mb = document.querySelectorAll('#modes [data-m]');
+  for (var k = 0; k < mb.length; k++) mb[k].onclick = (function (b) { return function () { setMode(b.getAttribute('data-m')); }; })(mb[k]);
+
+  var pal = document.getElementById('pal');
+  pal.innerHTML = '<span class="grp">Elementas:</span>';
+  for (var q = 0; q < EL.length; q++) {
+    var b = document.createElement('span'); b.className = 'b' + (EL[q][0] === elType ? ' on' : ''); b.setAttribute('data-t', EL[q][0]);
+    b.title = EL[q][1];
+    var ic = document.createElement('canvas'); ic.width = 44; ic.height = 26;
+    var c2 = ic.getContext('2d'); c2.translate(22, 13); c2.scale(0.4, 0.4); c2.strokeStyle = INK; c2.fillStyle = INK; c2.lineWidth = 3.5;
+    shape(c2, EL[q][0], EL[q][0] === 'BOX' ? '?' : '');
+    b.appendChild(ic); b.appendChild(document.createTextNode(EL[q][1]));
+    b.onclick = (function (t, el) { return function () {
+      elType = t; setMode('el'); var all = pal.querySelectorAll('[data-t]');
+      for (var i = 0; i < all.length; i++) all[i].classList.toggle('on', all[i] === el);
+    }; })(EL[q][0], b);
+    pal.appendChild(b);
+  }
+
+  document.getElementById('rot').onclick = function () {
+    if (sel >= 0 && objs[sel] && objs[sel].k === 'el') { push(); objs[sel].r = (objs[sel].r + 1) % 4; redraw(); changed(); }
+    else document.getElementById('hint').textContent = 'Pirma bakstelėk elementą (su „Elementai“ arba „Perkelti“), tada „Pasukti“.';
+  };
+  document.getElementById('undo').onclick = function () { if (undoStack.length) { objs = JSON.parse(undoStack.pop()); sel = -1; redraw(); changed(); } };
+  var clearArmed = null;
+  document.getElementById('clear').onclick = function () {
+    var b = document.getElementById('clear');
+    if (!objs.length && (!bg || cleared)) return;
+    if (!clearArmed) {
+      b.textContent = 'Tikrai išvalyti?'; b.style.background = '#fee2e2';
+      clearArmed = setTimeout(function () { clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = ''; }, 3000);
+      return;
+    }
+    clearTimeout(clearArmed); clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = '';
+    push(); objs = []; sel = -1; cleared = true; redraw(); changed();
+  };
+  document.getElementById('more').onclick = function () { H += 300; resize(); changed(); };
+
+  /* ---------------- ryšys su Streamlit ---------------- */
+  function send(type, extra) {
+    var m = { isStreamlitMessage: true, type: type };
+    for (var k in extra) m[k] = extra[k];
+    window.parent.postMessage(m, '*');
+  }
+  function setHeight() { send('streamlit:setFrameHeight', { height: document.body.scrollHeight + 4 }); }
+  function status(t) { document.getElementById('st').textContent = t; }
+  function changed() {
+    status('Saugoma...');
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(function () {
+      counter += 1;
+      var keepSel = sel; sel = -1; redraw();      // pažymėjimo spalva į paveikslėlį nepatenka
+      var empty = objs.length === 0 && (!bg || cleared);
+      send('streamlit:setComponentValue', { value: empty ? null : { n: counter, data: C.toDataURL('image/jpeg', 0.85) }, dataType: 'json' });
+      sel = keepSel; redraw();
+      status(empty ? '' : '✓ Išsaugota');
+    }, 2000);
+  }
+  function resize() {
+    W = document.getElementById('wrap').clientWidth || 700;
+    C.width = W; C.height = H; C.style.width = W + 'px'; C.style.height = H + 'px';
+    redraw(); setHeight();
+  }
+  window.addEventListener('message', function (ev) {
+    var d = ev.data || {};
+    if (d.type !== 'streamlit:render') return;
+    if (!window.__hSet && d.args && d.args.height) { window.__hSet = true; H = d.args.height; resize(); }
+    var url = d.args && d.args.initial;
+    if (url && url !== bgUrl && objs.length === 0 && !cleared) {   // anksčiau išsaugotas brėžinys – kaip fonas
+      bgUrl = url;
+      var img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = function () { bg = img; var need = Math.round(img.height * (W / img.width)); if (need > H) H = need; resize(); };
+      img.src = url;
+    }
+    if (!W) resize();
+  });
+  window.addEventListener('resize', function () { var w = document.getElementById('wrap').clientWidth; if (w && w !== W) resize(); });
+  send('streamlit:componentReady', { apiVersion: 1 });
+  setMode('el');
+  resize();
+  window.__circuit = { get: function () { return objs; } };   // patikrai
+})();
+</script>
+</body>
+</html>
