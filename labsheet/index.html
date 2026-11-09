@@ -283,7 +283,7 @@
         else if (b.t === 'img') {
           figNo += 1; var cap = caption(b.src);
           el = document.createElement('figure');
-          el.innerHTML = '<img src="img/' + esc(b.src) + '" alt="' + esc(cap) + '" loading="lazy"><figcaption>' + figNo + ' pav.' + (cap ? ' ' + esc(cap) : '') + '</figcaption>';
+          el.innerHTML = '<img src="' + esc(/^(https?:|data:)/.test(b.src) ? b.src : 'img/' + b.src) + '" alt="' + esc(cap) + '" loading="lazy"><figcaption>' + figNo + ' pav.' + (cap ? ' ' + esc(cap) : '') + '</figcaption>';
           el.querySelector('img').onload = height;
           st.appendChild(el);
         }
