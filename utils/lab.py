@@ -342,8 +342,10 @@ _sheet = _components.declare_component("ets_labsheet", path=str(Path(__file__).r
 
 _FS_JS = r"""
 (function(){
-  var P = window.parent, D = P.document;
+  // Šis kodas vykdomas programos lange (ne komponento rėmelyje)
+  var P = window, D = P.document;
   if (D.getElementById('ets-fs-btn')) return;
+  try { var old = P.top.document.getElementById('ets-fs-btn'); if (old && P.top !== P) old.remove(); } catch (e) {}
   // Programa gali būti įdėta į Streamlit Cloud rėmą – tada per visą ekraną rodom viršutinį langą
   var T = P; try { if (P.top && P.top.document) T = P.top; } catch (e) {}
   var TD = T.document, root = TD.documentElement;
@@ -352,7 +354,7 @@ _FS_JS = r"""
   var isFs = function(){ return TD.fullscreenElement || TD.webkitFullscreenElement; };
   var b = D.createElement('button');
   b.id = 'ets-fs-btn'; b.type = 'button';
-  b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99990;font:15px/1.2 "Times New Roman",Times,serif;' +
+  b.style.cssText = 'position:fixed;top:44px;right:12px;z-index:99990;font:15px/1.2 "Times New Roman",Times,serif;' +
     'padding:6px 12px;border:1px solid #767676;border-radius:3px;background:#efefef;color:#000;cursor:pointer;opacity:.92';
   var label = function(){ b.textContent = isFs() ? 'Išeiti iš viso ekrano' : 'Visas ekranas'; };
   label();
@@ -384,7 +386,10 @@ def render_lab_sheet(labs, img_url_for):
     Lapas dalijamas ties brėžimo vietomis – ten įterpiamas schemų lapas."""
     st.markdown(
         "<style>.block-container{max-width:min(1500px,100%) !important;"
-        "padding:0.6rem max(14px,2.2vw) 4rem !important}</style>",
+        "padding:0.6rem max(14px,2.2vw) 4rem !important}"
+        # nematomi pagalbiniai elementai (aukštis 0) neužima vietos virš lapo
+        "[data-testid=stElementContainer]:has(> iframe[height='0']),"
+        ".element-container:has(> iframe[height='0']){position:absolute !important}</style>",
         unsafe_allow_html=True,
     )
     _fullscreen_button()
