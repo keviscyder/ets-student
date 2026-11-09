@@ -55,7 +55,7 @@ def lab_fields(q: dict) -> list:
                 out += [f"b{i}.l{j}.{k}" for k in range(len(it) - 1)]
         elif t == "table":
             for r, row in enumerate(b.get("rows") or []):
-                out += [f"b{i}.r{r}.c{c}" for c, cell in enumerate(row) if cell is None]
+                out += [f"b{i}.r{r}.c{c}" for c, cell in enumerate(row) if cell is None or re.search(r"\.{4,}", cell or "")]
         elif t == "text":
             out.append(f"b{i}")
     return out
@@ -81,12 +81,26 @@ def _vals(tid, saved_text=None) -> dict:
 def lab_sync(questions) -> None:
     """Perkelia ekrane pakeistas reikšmes į bendrą žodyną ir atnaujina atsakymą
     (ans_<id>), kurį išsaugo įprastas automatinis išsaugojimas."""
+    # Darbo lapo komponentų reikšmės: {"n": .., "v": {klausimo_id: {laukelis: reikšmė}}}
+    sheet = {}
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith("labsheet_"):
+            v = st.session_state.get(k)
+            if isinstance(v, dict) and isinstance(v.get("v"), dict):
+                for t, d in v["v"].items():
+                    if isinstance(d, dict):
+                        sheet.setdefault(t, {}).update(d)
     for tq in questions or []:
         q = tq["question_bank"]
         if not is_lab(q):
             continue
         tid = tq["id"]
         vals = _vals(tid, st.session_state.get(f"ans_{tid}"))
+        for fk, v in (sheet.get(tid) or {}).items():
+            if v is None or str(v).strip() == "":
+                vals.pop(fk, None)
+            else:
+                vals[fk] = str(v)
         pre = f"lab_{tid}__"
         for k in list(st.session_state.keys()):
             if isinstance(k, str) and k.startswith(pre):
@@ -318,3 +332,47 @@ def render_lab(tq, sketch_pad=None, img_url=None):
             except Exception:
                 if sketch_pad is not None:
                     sketch_pad(key=f"draft_{tid}", initial_url=img_url, height=520)
+
+
+# ---------------------------------------------------------------- darbo lapas (komponentas)
+import streamlit.components.v1 as _components
+
+_sheet = _components.declare_component("ets_labsheet", path=str(Path(__file__).resolve().parent.parent / "labsheet"))
+
+
+def render_lab_sheet(labs, img_url_for):
+    """Visas laboratorinis darbas vienu lapu, kaip spausdintas darbo lapas.
+    Lapas dalijamas ties brėžimo vietomis – ten įterpiamas schemų lapas."""
+    st.markdown("<style>.block-container{max-width:900px !important}</style>", unsafe_allow_html=True)
+    title = (lab_spec(labs[0]["question_bank"]).get("title") or "") if labs else ""
+    title = re.sub(r"^[HS]\d\.\s*", "", title)
+    toc = [{"tid": t["id"], "title": t["question_bank"]["prompt"]} for t in labs]
+    chunks, cur = [], []
+    for tq in labs:
+        q = tq["question_bank"]
+        blocks = lab_spec(q).get("blocks") or []
+        part = {"tid": tq["id"], "title": q["prompt"], "points": q.get("points") or 0, "blocks": blocks}
+        start = 0
+        for bi, b in enumerate(blocks):
+            if b.get("t") == "pad":
+                cur.append(dict(part, **{"from": start, "to": bi + 1}))
+                chunks.append(("sheet", cur))
+                chunks.append(("pad", tq))
+                cur, start = [], bi + 1
+        if start < len(blocks) or start == 0:
+            cur.append(dict(part, **{"from": start, "to": len(blocks)}))
+    if cur:
+        chunks.append(("sheet", cur))
+    fig = 0
+    for ci, (kind, x) in enumerate(chunks):
+        if kind == "sheet":
+            values = {p["tid"]: _vals(p["tid"], st.session_state.get(f"ans_{p['tid']}")) for p in x}
+            _sheet(sheet={"master": ci == 0, "title": title, "toc": toc, "parts": x}, values=values, fig0=fig,
+                   key=f"labsheet_{ci}", default=None)
+            fig += sum(1 for p in x for b in p["blocks"][p["from"]:p["to"]] if b.get("t") == "img")
+        else:
+            try:
+                from utils.sketch import circuit_pad
+                circuit_pad(key=f"draft_{x['id']}", initial_url=img_url_for(x["id"]), height=520)
+            except Exception:
+                pass

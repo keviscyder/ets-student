@@ -121,7 +121,7 @@ import utils.grading as _grading
 import utils.test_queries as _test_queries
 import utils.lab as _lab_mod
 importlib.reload(_lab_mod)
-from utils.lab import is_lab, lab_sync, render_lab, filled as lab_filled
+from utils.lab import is_lab, lab_sync, render_lab, render_lab_sheet, filled as lab_filled
 import utils.terms as _terms_mod
 importlib.reload(_terms_mod)
 from utils.terms import T, filter_classes
@@ -1346,9 +1346,10 @@ elif st.session_state.step == "taking_test":
     # TESTO PAVADINIMAS
     # --------------------------------------------------------
 
-    st.subheader(
-        assignment["tests"]["title"]
-    )
+    if not any(is_lab(_t["question_bank"]) for _t in questions):   # lab lapas turi savo antraštę
+        st.subheader(
+            assignment["tests"]["title"]
+        )
 
 
     # --------------------------------------------------------
@@ -1380,48 +1381,17 @@ elif st.session_state.step == "taking_test":
             st.session_state[_k] = _v
 
 
-    # LABORATORINIS DARBAS: rodoma viena darbo dalis vienu metu
-    # (mažiau laukelių ekrane – greičiau veikia planšetėse).
+    # LABORATORINIS DARBAS: visas darbas vienu lapu, kaip spausdintas darbo lapas
     _labs = [t for t in questions if is_lab(t["question_bank"])]
-    _lab_cur = None
     if _labs:
-        st.markdown("<style>.block-container{max-width:1100px !important}</style>", unsafe_allow_html=True)
-        _n = len(_labs)
-        if st.session_state.get("_lab_sel") not in range(_n):
-            st.session_state["_lab_sel"] = 0
-
-        # Pavadinimai turi nekisti: pasikeitus pasirinkimų tekstui Streamlit
-        # pasirinkimą grąžintų į pirmą dalį.
-        st.selectbox("Darbo dalis", list(range(_n)), key="_lab_sel",
-                     format_func=lambda i: f"{i + 1}/{_n}. {_labs[i]['question_bank']['prompt']}")
-        _lab_cur = _labs[st.session_state["_lab_sel"]]["id"]
-        _f, _tot = lab_filled(_labs[st.session_state["_lab_sel"]]["question_bank"], st.session_state.get(f"ans_{_lab_cur}"))
-        if _tot:
-            st.caption(f"Užpildyta šioje dalyje: {_f} iš {_tot} laukelių")
+        render_lab_sheet(_labs, lambda _id: (st.session_state.get("_img_urls", {}).get(_id)
+                                             or st.session_state.get("_restored_img", {}).get(_id)))
 
     for tq in questions:
 
         q = tq["question_bank"]
 
         if is_lab(q):
-            if tq["id"] != _lab_cur:
-                continue
-            st.divider()
-            st.markdown(f"### {q['prompt']}" + (f"  \n<small>{q['points']} tšk.</small>" if q.get("points") else ""),
-                        unsafe_allow_html=True)
-            render_lab(tq, sketch_pad=sketch_pad,
-                       img_url=(st.session_state.get("_img_urls", {}).get(tq["id"])
-                                or st.session_state.get("_restored_img", {}).get(tq["id"])))
-            _i = st.session_state["_lab_sel"]
-
-            def _go(d):
-                st.session_state["_lab_sel"] = max(0, min(len(_labs) - 1, st.session_state["_lab_sel"] + d))
-
-            _c1, _c2 = st.columns(2)
-            if _i > 0:
-                _c1.button("← Ankstesnė dalis", key=f"labprev_{_i}", on_click=_go, args=(-1,), use_container_width=True)
-            if _i < len(_labs) - 1:
-                _c2.button("Kita dalis →", key=f"labnext_{_i}", on_click=_go, args=(1,), use_container_width=True)
             continue
 
         st.divider()
