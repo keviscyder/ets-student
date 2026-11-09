@@ -136,6 +136,8 @@ from utils.test_queries import (
     get_broadcast,
     get_all_classes,
     find_student_in_class,
+    find_assignment_by_code,
+    list_class_students,
     get_assignment_by_code,
     get_or_create_submission,
     get_test_questions_for_student,
@@ -216,7 +218,7 @@ _PREV_TEST_RENDERED = st.session_state.pop("_test_rendered", False)
 # ============================================================
 
 for key, default in [
-    ("step", "select_class"),
+    ("step", "code"),
     ("class_id", None),
     ("student_id", None),
     ("student_name", None),
@@ -662,7 +664,7 @@ def _reset_to_start():
     ]:
         st.session_state[key] = None
     st.session_state.submit_requested = False
-    st.session_state.step = "select_class"
+    st.session_state.step = "code"
 
 
 def _request_submit():
@@ -841,7 +843,7 @@ if st.session_state.get("step") != "taking_test":
         height=0,
     )
 
-if st.session_state.get("step") in (None, "select_class", "enter_name", "enter_code"):
+if st.session_state.get("step") in (None, "code", "pick_name", "select_class", "enter_name", "enter_code"):
     # Pastovus šio įrenginio kodas iš naršyklės atminties (žr. _device_id)
     st.text_input("ets_dev", key="ets_dev", label_visibility="collapsed", on_change=_on_device)
     st.markdown(
@@ -886,11 +888,205 @@ if _info["app"] or _info["tablet"]:
     )
 
 
+def _start_with_code(code):
+    """Pradeda (arba tęsia) atsiskaitymą pagal kodą jau žinomam mokiniui."""
+    with st.spinner("Kraunamas testas..."):
+
+        assignment = get_assignment_by_code(
+            supabase,
+            code,
+            st.session_state.class_id,
+        )
+
+        if not assignment:
+
+            st.error(
+                T("Kodas neteisingas arba neatitinka tavo klasės.")
+            )
+
+        elif assignment.get("student_ids") and st.session_state.student_id not in assignment["student_ids"]:
+
+            st.error(
+                T("Šis kodas skirtas ne tau. Pasitikrink kodą arba kreipkis į mokytoją.")
+            )
+
+        else:
+
+            existing = get_submission(
+                supabase,
+                assignment["id"],
+                st.session_state.student_id,
+            )
+
+            if existing and existing["status"] == "submitted":
+
+                if assignment.get("results_released"):
+
+                    st.session_state.assignment = assignment
+                    st.session_state.submission = existing
+                    st.session_state.step = "results"
+                    st.rerun()
+
+                st.info(
+                    T("Tu jau atlikai šį testą. Rezultatus pamatysi, "
+                      "kai mokytojas juos paskelbs.")
+                )
+                st.stop()
+
+            now = datetime.now(timezone.utc)
+
+            opens = datetime.fromisoformat(
+                assignment["opens_at"]
+            )
+
+            closes = datetime.fromisoformat(
+                assignment["closes_at"]
+            )
+
+            if now < opens:
+
+                st.warning("Testas dar neprasidėjo.")
+
+            elif now > closes:
+
+                st.error("Testo laikas jau pasibaigęs.")
+
+            else:
+
+                submission = get_or_create_submission(
+                    supabase,
+                    assignment["id"],
+                    st.session_state.student_id,
+                )
+
+                if submission["status"] == "submitted":
+
+                    st.info(
+                        T("Tu jau atlikai šį testą. "
+                          "Rezultatai perduoti mokytojui.")
+                    )
+
+                    st.stop()
+
+                if _busy_elsewhere(submission):
+                    st.error(
+                        T("Šis mokinys jau sprendžia testą kitame įrenginyje. "
+                          "Testą galima spręsti tik viename įrenginyje. "
+                          "Jei tai tu ir įrenginys sugedo – palauk 2 minutes ir bandyk dar kartą "
+                          "arba kreipkis į mokytoją.")
+                    )
+                    st.stop()
+
+                _claim_device(submission)
+
+                st.session_state.assignment = assignment
+
+                st.session_state.submission = submission
+
+                # Testo versija: lengvesnė ar kita kalba, jei mokytojas ją priskyrė mokiniui
+                _test_id = assignment["test_id"]
+                _pools = (assignment.get("tests") or {}).get("pool_sizes")
+                if submission.get("test_id"):
+                    if submission["test_id"] != _test_id:
+                        _test_id = submission["test_id"]
+                        _pools = get_test_pool_sizes(supabase, _test_id)
+                else:
+                    _var = (st.session_state.get("_acc") or {}).get("variant")
+                    _found = find_variant_test(supabase, _test_id, _var) if _var else None
+                    if _found and set_submission_test(supabase, submission["id"], _found[0]):
+                        _test_id, _pools = _found
+                        submission["test_id"] = _test_id
+                st.session_state.test_id_used = _test_id
+
+                # Atsitiktiniai variantai: mokiniui tenka tik jo klausimai iš grupių
+                _tqs = select_questions(
+                    get_test_questions_for_student(supabase, _test_id),
+                    _pools,
+                    submission["id"],
+                )
+                # Uždaviniams su atsitiktiniais skaičiais – mokinio „sėkla“
+                for _tq in _tqs:
+                    _tq["question_bank"] = {**_tq["question_bank"], "_seed": f"{submission['id']}_{_tq['id']}"}
+
+                st.session_state.test_questions = _prepare_test_state(submission, _tqs)
+
+                st.session_state.submit_requested = False
+                st.session_state.step = "taking_test"
+
+                st.rerun()
+
+
+# ============================================================
+# PAPRASTAS PRISIJUNGIMAS: kodas (arba nuoroda / QR su kodu) -> vardas iš sąrašo
+# ============================================================
+
+def _goto(step):
+    st.session_state.step = step
+
+
+if st.session_state.step == "code":
+
+    _qp = ""
+    try:
+        _qp = (st.query_params.get("kodas") or st.query_params.get("k") or "").strip().upper()
+    except Exception:
+        pass
+
+    st.markdown(T("#### Įvesk mokytojo pasakytą kodą"))
+    code = st.text_input("Kodas", value=_qp, max_chars=12, key="_code_in",
+                         placeholder="pvz. 3K3TYR", label_visibility="collapsed")
+    _go = st.button("Toliau", type="primary", use_container_width=True)
+    # atėjus per nuorodą / QR su kodu – iškart toliau
+    if _qp and not st.session_state.get("_qp_used"):
+        st.session_state._qp_used = True
+        _go = True
+    if _go and (code or "").strip():
+        with st.spinner("Ieškoma..."):
+            _a = find_assignment_by_code(supabase, code)
+        if not _a:
+            st.error("Tokio kodo nėra. Patikrink, ar gerai perrašei.")
+        else:
+            st.session_state.class_id = _a["class_id"]
+            st.session_state._code = code.strip().upper()
+            st.session_state.step = "pick_name"
+            st.rerun()
+    st.write("")
+    st.button(T("Neturiu kodo – rinktis klasę"), on_click=_goto, args=("select_class",))
+
+
+elif st.session_state.step == "pick_name":
+
+    _students = list_class_students(supabase, st.session_state.class_id)
+    if not _students:
+        st.error(T("Šioje klasėje dar nėra mokinių sąrašo. Kreipkis į mokytoją."))
+    else:
+        _sid = st.selectbox(
+            T("Pasirink savo vardą"),
+            options=[s["id"] for s in _students],
+            index=None,
+            placeholder="Pradėk rašyti vardą arba pavardę…",
+            format_func=lambda x: next(s["name"] for s in _students if s["id"] == x),
+        )
+        _match = next((s for s in _students if s["id"] == _sid), None)
+        _pin_ok = True
+        if _match and _match.get("pin"):
+            _pin = st.text_input("Tavo asmeninis kodas", type="password", max_chars=8, help=T("Kodą tau davė mokytojas."))
+            _pin_ok = _pin.strip() == str(_match["pin"]).strip()
+            if _pin and not _pin_ok:
+                st.error("Neteisingas asmeninis kodas.")
+        if st.button("Pradėti", type="primary", disabled=not (_match and _pin_ok), use_container_width=True):
+            st.session_state.student_id = _match["id"]
+            st.session_state.student_name = _match["name"]
+            st.session_state._acc = _match.get("accommodations") or {}
+            _start_with_code(st.session_state._code)
+    st.button("← Kitas kodas", on_click=_goto, args=("code",))
+
+
 # ============================================================
 # ŽINGSNIS 1: KLASĖS PASIRINKIMAS
 # ============================================================
 
-if st.session_state.step == "select_class":
+elif st.session_state.step == "select_class":
 
     classes = filter_classes(supabase, get_all_classes(supabase))
 
@@ -985,130 +1181,7 @@ elif st.session_state.step == "enter_code":
 
     if st.button("Pradėti testą", type="primary") and code:
 
-        with st.spinner("Kraunamas testas..."):
-
-            assignment = get_assignment_by_code(
-                supabase,
-                code,
-                st.session_state.class_id,
-            )
-
-            if not assignment:
-
-                st.error(
-                    T("Kodas neteisingas arba neatitinka tavo klasės.")
-                )
-
-            elif assignment.get("student_ids") and st.session_state.student_id not in assignment["student_ids"]:
-
-                st.error(
-                    T("Šis kodas skirtas ne tau. Pasitikrink kodą arba kreipkis į mokytoją.")
-                )
-
-            else:
-
-                existing = get_submission(
-                    supabase,
-                    assignment["id"],
-                    st.session_state.student_id,
-                )
-
-                if existing and existing["status"] == "submitted":
-
-                    if assignment.get("results_released"):
-
-                        st.session_state.assignment = assignment
-                        st.session_state.submission = existing
-                        st.session_state.step = "results"
-                        st.rerun()
-
-                    st.info(
-                        T("Tu jau atlikai šį testą. Rezultatus pamatysi, "
-                          "kai mokytojas juos paskelbs.")
-                    )
-                    st.stop()
-
-                now = datetime.now(timezone.utc)
-
-                opens = datetime.fromisoformat(
-                    assignment["opens_at"]
-                )
-
-                closes = datetime.fromisoformat(
-                    assignment["closes_at"]
-                )
-
-                if now < opens:
-
-                    st.warning("Testas dar neprasidėjo.")
-
-                elif now > closes:
-
-                    st.error("Testo laikas jau pasibaigęs.")
-
-                else:
-
-                    submission = get_or_create_submission(
-                        supabase,
-                        assignment["id"],
-                        st.session_state.student_id,
-                    )
-
-                    if submission["status"] == "submitted":
-
-                        st.info(
-                            T("Tu jau atlikai šį testą. "
-                              "Rezultatai perduoti mokytojui.")
-                        )
-
-                        st.stop()
-
-                    if _busy_elsewhere(submission):
-                        st.error(
-                            T("Šis mokinys jau sprendžia testą kitame įrenginyje. "
-                              "Testą galima spręsti tik viename įrenginyje. "
-                              "Jei tai tu ir įrenginys sugedo – palauk 2 minutes ir bandyk dar kartą "
-                              "arba kreipkis į mokytoją.")
-                        )
-                        st.stop()
-
-                    _claim_device(submission)
-
-                    st.session_state.assignment = assignment
-
-                    st.session_state.submission = submission
-
-                    # Testo versija: lengvesnė ar kita kalba, jei mokytojas ją priskyrė mokiniui
-                    _test_id = assignment["test_id"]
-                    _pools = (assignment.get("tests") or {}).get("pool_sizes")
-                    if submission.get("test_id"):
-                        if submission["test_id"] != _test_id:
-                            _test_id = submission["test_id"]
-                            _pools = get_test_pool_sizes(supabase, _test_id)
-                    else:
-                        _var = (st.session_state.get("_acc") or {}).get("variant")
-                        _found = find_variant_test(supabase, _test_id, _var) if _var else None
-                        if _found and set_submission_test(supabase, submission["id"], _found[0]):
-                            _test_id, _pools = _found
-                            submission["test_id"] = _test_id
-                    st.session_state.test_id_used = _test_id
-
-                    # Atsitiktiniai variantai: mokiniui tenka tik jo klausimai iš grupių
-                    _tqs = select_questions(
-                        get_test_questions_for_student(supabase, _test_id),
-                        _pools,
-                        submission["id"],
-                    )
-                    # Uždaviniams su atsitiktiniais skaičiais – mokinio „sėkla“
-                    for _tq in _tqs:
-                        _tq["question_bank"] = {**_tq["question_bank"], "_seed": f"{submission['id']}_{_tq['id']}"}
-
-                    st.session_state.test_questions = _prepare_test_state(submission, _tqs)
-
-                    st.session_state.submit_requested = False
-                    st.session_state.step = "taking_test"
-
-                    st.rerun()
+        _start_with_code(code)
 
 
 # ============================================================

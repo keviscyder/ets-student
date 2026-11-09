@@ -51,6 +51,39 @@ def find_student_in_class(supabase: Client, class_id: str, full_name: str):
 _ASG_COLS = "id, test_id, class_id, opens_at, closes_at, duration_minutes, results_released, tests(title, description, show_formulas)"
 
 
+def find_assignment_by_code(supabase: Client, session_code: str):
+    """Atsiskaitymas tik pagal kodą (be klasės) – kad mokiniui nereikėtų rinktis klasės.
+    Jei tokių kodų keli, imamas tas, kuris dabar atidarytas, kitaip – naujausias."""
+    code = (session_code or "").strip().upper()
+    if not code:
+        return None
+    try:
+        rows = (supabase.table("assignments").select("id, class_id, opens_at, closes_at")
+                .eq("session_code", code).order("opens_at", desc=True).limit(10).execute().data or [])
+    except Exception:
+        return None
+    if not rows:
+        return None
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    def is_open(r):
+        try:
+            return datetime.fromisoformat(r["opens_at"]) <= now <= datetime.fromisoformat(r["closes_at"])
+        except Exception:
+            return False
+    pick = next((r for r in rows if is_open(r)), rows[0])
+    return get_assignment_by_code(supabase, code, pick["class_id"])
+
+
+def list_class_students(supabase: Client, class_id: str):
+    """Klasės (grupės) mokiniai vardui pasirinkti iš sąrašo."""
+    try:
+        rows = supabase.table("students").select("id, name, pin, accommodations").eq("class_id", class_id).execute().data or []
+    except Exception:
+        rows = supabase.table("students").select("id, name, pin").eq("class_id", class_id).execute().data or []
+    return sorted(rows, key=lambda r: (r.get("name") or "").lower())
+
+
 def get_assignment_by_code(supabase: Client, session_code: str, class_id: str):
     def q(cols):
         return (
