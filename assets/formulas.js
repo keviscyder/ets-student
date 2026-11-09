@@ -1,4 +1,4 @@
-/* E-testavimas: formulynas (VBE fizikos priedas) – mygtukas „📘 Formulynas“.
+/* E-testavimas: formulynas (VBE fizikos priedas) – mygtukas „Formulynas“.
    Paveikslėliai atsisiunčiami tik pirmą kartą atidarius. Senas JavaScript. */
 (function () {
   if (document.getElementById('ets-form-btn')) return;
@@ -18,11 +18,11 @@
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
 
   var btn = document.createElement('button');
-  btn.id = 'ets-form-btn'; btn.type = 'button'; btn.textContent = '📘 Formulynas';
+  btn.id = 'ets-form-btn'; btn.type = 'button'; btn.textContent = 'Formulynas';
   document.body.appendChild(btn);
 
   var box = document.createElement('div'); box.id = 'ets-form';
-  box.innerHTML = '<div class="bar"><span class="tt">📘 Formulės ir konstantos</span>'
+  box.innerHTML = '<div class="bar"><span class="tt">Formulės ir konstantos</span>'
     + '<span class="b" data-z="-1">−</span><span class="b" data-z="1">+</span>'
     + '<span class="b x" data-a="close">Uždaryti ✕</span></div><div class="sc"></div>';
   document.body.appendChild(box);

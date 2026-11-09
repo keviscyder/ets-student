@@ -19,7 +19,7 @@
     + '#ets-calc .g button.fn{font-size:15px}';
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
 
-  var btn = document.createElement('button'); btn.id = 'ets-calc-btn'; btn.title = 'Skaičiuotuvas'; btn.textContent = '🧮';
+  var btn = document.createElement('button'); btn.id = 'ets-calc-btn'; btn.title = 'Skaičiuotuvas'; btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><rect x="8" y="5" width="8" height="4"/><path d="M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01"/></svg>';
   var box = document.createElement('div'); box.id = 'ets-calc';
   var keys = [
     ['C', 'fn'], ['⌫', 'fn'], ['(', 'op'], [')', 'op'], ['÷', 'op'],

@@ -30,21 +30,21 @@
 </head>
 <body>
 <div class="row" id="modes">
-  <span class="b on" data-m="el">⚡ Elementai</span>
-  <span class="b" data-m="wire">┐ Laidas</span>
-  <span class="b" data-m="text">T Tekstas</span>
-  <span class="b" data-m="pen">✏️ Pieštukas</span>
+  <span class="b on" data-m="el">Elementai</span>
+  <span class="b" data-m="wire">Laidas</span>
+  <span class="b" data-m="text">Tekstas</span>
+  <span class="b" data-m="pen">Pieštukas</span>
   <span class="sep"></span>
-  <span class="b" data-m="axes">📈 Ašys</span>
-  <span class="b" data-m="point">• Taškas</span>
-  <span class="b" data-m="line">╱ Tiesė</span>
+  <span class="b" data-m="axes">Ašys</span>
+  <span class="b" data-m="point">Taškas</span>
+  <span class="b" data-m="line">Tiesė</span>
   <span class="sep"></span>
-  <span class="b" data-m="move">✥ Perkelti</span>
-  <span class="b" data-m="del">✖ Trinti</span>
-  <span class="b" id="rot" title="Pasukti pažymėtą elementą 90°">⟳ Pasukti</span>
-  <span class="b" id="undo">↶ Atgal</span>
-  <span class="b" id="clear">🗑 Išvalyti</span>
-  <span class="b" id="more">➕ Vietos</span>
+  <span class="b" data-m="move">Perkelti</span>
+  <span class="b" data-m="del">Trinti</span>
+  <span class="b" id="rot" title="Pasukti pažymėtą elementą 90°">Pasukti</span>
+  <span class="b" id="undo">Atgal</span>
+  <span class="b" id="clear">Išvalyti</span>
+  <span class="b" id="more">Vietos</span>
   <span id="st"></span>
 </div>
 <div class="row" id="pal"></div>
@@ -54,6 +54,7 @@
 (function () {
   var C = document.getElementById('c'), X = C.getContext('2d');
   var W = 0, H = 520, G = 25;                       // tinklelio žingsnis
+  var DPR = Math.min(2, Math.max(1, window.devicePixelRatio || 1));   // ryškumui
   var objs = [], undoStack = [], mode = 'el', elType = 'R', sel = -1;
   var drag = null, bg = null, bgUrl = null, cleared = false, penSeen = false;
   var sendTimer = null, counter = 0, INK = '#111827', SEL = '#1d4ed8';
@@ -122,7 +123,7 @@
 
   /* ---------------- piešimas ---------------- */
   function paper() {
-    X.setTransform(1, 0, 0, 1, 0, 0);
+    X.setTransform(DPR, 0, 0, DPR, 0, 0);
     X.fillStyle = '#fff'; X.fillRect(0, 0, W, H);
     X.strokeStyle = '#e2e8f0'; X.lineWidth = 1;
     for (var x = G; x < W; x += G) { X.beginPath(); X.moveTo(x + .5, 0); X.lineTo(x + .5, H); X.stroke(); }
@@ -334,10 +335,10 @@
     if (!objs.length && (!bg || cleared)) return;
     if (!clearArmed) {
       b.textContent = 'Tikrai išvalyti?'; b.style.background = '#fee2e2';
-      clearArmed = setTimeout(function () { clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = ''; }, 3000);
+      clearArmed = setTimeout(function () { clearArmed = null; b.textContent = 'Išvalyti'; b.style.background = ''; }, 3000);
       return;
     }
-    clearTimeout(clearArmed); clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = '';
+    clearTimeout(clearArmed); clearArmed = null; b.textContent = 'Išvalyti'; b.style.background = '';
     push(); objs = []; sel = -1; cleared = true; redraw(); changed();
   };
   document.getElementById('more').onclick = function () { H += 300; resize(); changed(); };
@@ -357,14 +358,14 @@
       counter += 1;
       var keepSel = sel; sel = -1; redraw();      // pažymėjimo spalva į paveikslėlį nepatenka
       var empty = objs.length === 0 && (!bg || cleared);
-      send('streamlit:setComponentValue', { value: empty ? null : { n: counter, data: C.toDataURL('image/jpeg', 0.85) }, dataType: 'json' });
+      send('streamlit:setComponentValue', { value: empty ? null : { n: counter, data: C.toDataURL('image/png') }, dataType: 'json' });
       sel = keepSel; redraw();
       status(empty ? '' : '✓ Išsaugota');
     }, 2000);
   }
   function resize() {
     W = document.getElementById('wrap').clientWidth || 700;
-    C.width = W; C.height = H; C.style.width = W + 'px'; C.style.height = H + 'px';
+    C.width = Math.round(W * DPR); C.height = Math.round(H * DPR); C.style.width = W + 'px'; C.style.height = H + 'px';
     redraw(); setHeight();
   }
   window.addEventListener('message', function (ev) {

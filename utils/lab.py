@@ -18,6 +18,17 @@ import streamlit as st
 _STATIC = Path(__file__).resolve().parent.parent / "static" / "lab"
 
 
+@st.cache_data(show_spinner=False, max_entries=64)
+def _img_uri(name: str):
+    """Darbo lapo paveikslėlis originalia kokybe (Streamlit jo nesumažina ir neperspaudžia)."""
+    import base64
+    p = _STATIC / name
+    if not p.is_file():
+        return None
+    mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+    return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode()
+
+
 def is_lab(q: dict) -> bool:
     return (q or {}).get("type") == "lab"
 
@@ -166,7 +177,7 @@ def _graph(tid, bi, b, vals):
     def col(c):
         return [(_num(vals.get(f"b{bi}.r{r}.c{c}")) if row[c] is None else _num(_plain(row[c]))) for r, row in enumerate(rows)]
 
-    with st.expander("📈 Grafikas iš šios lentelės"):
+    with st.expander("Grafikas iš šios lentelės"):
         names = {c: head[c] or f"Stulpelis {c + 1}" for c in range(len(head))}
         numeric = [c for c in range(len(head)) if sum(v is not None for v in col(c)) >= 1 or c in cols_in]
         tcol = next((c for c in numeric if re.match(r"^(t\s*,|t$|laikas)", names[c], re.I)), None)
@@ -290,16 +301,17 @@ def render_lab(tq, sketch_pad=None, img_url=None):
         elif t == "table":
             _table(tid, i, b, vals)
         elif t == "img":
-            p = _STATIC / b["src"]
-            if p.is_file():
-                st.image(str(p), use_container_width=True)
+            uri = _img_uri(b["src"])
+            if uri:
+                st.markdown(f'<img src="{uri}" style="width:100%;height:auto;display:block;margin:.4rem 0;'
+                            f'background:#fff;border:1px solid #e2e8f0;border-radius:4px" alt="">', unsafe_allow_html=True)
         elif t == "formula":
             st.markdown(f'<div class="lab-formula">{b["x"]}</div>', unsafe_allow_html=True)
         elif t == "text":
             st.text_area("Atsakymas", key=_ensure(tid, f"b{i}", vals), height=40 + 26 * int(b.get("rows") or 3),
                          placeholder="Rašyk čia…", label_visibility="collapsed")
         elif t == "pad":
-            st.caption("✍️ Schemos ir grafiko lapas: elektros elementai, laidai, ašys ir taškai. Brėžinys išsaugomas automatiškai.")
+            st.caption("Schemos ir grafiko lapas: elektros elementai, laidai, ašys ir taškai. Brėžinys išsaugomas automatiškai.")
             try:
                 from utils.sketch import circuit_pad
                 circuit_pad(key=f"draft_{tid}", initial_url=img_url, height=520)

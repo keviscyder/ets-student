@@ -7,10 +7,10 @@ from PIL import Image
 from supabase import Client
 
 BUCKET_NAME = "test-images"
-MAX_WIDTH = 1600
+MAX_WIDTH = 2000
 
 
-def compress_image(uploaded_file, max_width: int = MAX_WIDTH, quality: int = 85) -> bytes:
+def compress_image(uploaded_file, max_width: int = MAX_WIDTH, quality: int = 92) -> bytes:
     """Sumažina nuotraukos plotį (jei reikia) ir grąžina suspaustus baitus."""
     img = Image.open(uploaded_file)
     img = img.convert("RGB")
@@ -21,8 +21,16 @@ def compress_image(uploaded_file, max_width: int = MAX_WIDTH, quality: int = 85)
         img = img.resize(new_size, Image.LANCZOS)
 
     buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=quality)
+    img.save(buffer, format="JPEG", quality=quality, subsampling=0)
     return buffer.getvalue()
+
+
+def upload_png(supabase: Client, data: bytes, folder: str = "answers") -> str:
+    """Brėžinys (rašymo ar schemų lapas) – įkeliamas PNG be perspaudimo,
+    kad linijos ir raidės liktų ryškios."""
+    filename = f"{folder}/{uuid.uuid4()}.png"
+    supabase.storage.from_(BUCKET_NAME).upload(filename, data, {"content-type": "image/png"})
+    return supabase.storage.from_(BUCKET_NAME).get_public_url(filename)
 
 
 def upload_image(supabase: Client, uploaded_file, folder: str = "questions") -> str:
@@ -48,7 +56,7 @@ DRAFT_FOLDER = "drafts"
 def upload_draft(supabase: Client, submission_id: str, data: bytes) -> str:
     """Bendras mokinio juodraštis: vienas failas vienam bandymui (perrašomas)."""
     path = f"{DRAFT_FOLDER}/{submission_id}.jpg"
-    compressed = compress_image(io.BytesIO(data), max_width=1200, quality=70)
+    compressed = compress_image(io.BytesIO(data), max_width=1600, quality=88)
     supabase.storage.from_(BUCKET_NAME).upload(
         path, compressed, {"content-type": "image/jpeg", "upsert": "true"},
     )

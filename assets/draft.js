@@ -26,17 +26,17 @@
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
 
   var btn = document.createElement('button');
-  btn.id = 'ets-draft-btn'; btn.type = 'button'; btn.textContent = '✏️ Juodraštis';
+  btn.id = 'ets-draft-btn'; btn.type = 'button'; btn.textContent = 'Juodraštis';
   btn.setAttribute('data-key', KEY);
   document.body.appendChild(btn);
 
   var box = document.createElement('div'); box.id = 'ets-draft';
   box.innerHTML = '<div class="bar">'
-    + '<span class="tt">✏️ Juodraštis</span>'
+    + '<span class="tt">Juodraštis</span>'
     + '<span class="b on" data-t="black">Juodas</span><span class="b" data-t="blue">Mėlynas</span>'
     + '<span class="b" data-t="eraser">Trintukas</span>'
     + '<span class="b" data-a="undo">↶ Atgal</span><span class="b" data-a="clear">Išvalyti</span>'
-    + '<span class="b" data-a="more">➕ Vietos</span>'
+    + '<span class="b" data-a="more">Vietos</span>'
     + '<span class="b x" data-a="close">Uždaryti ✕</span></div>'
     + '<div class="sc"><canvas></canvas></div>';
   document.body.appendChild(box);

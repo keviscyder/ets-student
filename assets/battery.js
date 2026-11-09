@@ -1,4 +1,4 @@
-/* E-testavimas: planšetės baterija. Rodo „🔋 54%“ viršuje dešinėje ir
+/* E-testavimas: planšetės baterija. Rodo „54%“ viršuje dešinėje ir
    (testo metu) praneša mokytojui, kai lygis pasikeičia bent 5 %. Senas JavaScript. */
 (function () {
   if (window.__etsBattery) { window.__etsBattery(); return; }
@@ -26,7 +26,7 @@
   function show() {
     if (!B) return;
     var lv = Math.round(B.level * 100);
-    el.textContent = (B.charging ? '⚡ ' : '🔋 ') + lv + '%';
+    el.textContent = (B.charging ? 'Kraunama ' : 'Baterija ') + lv + '%';
     el.style.background = lv <= 15 && !B.charging ? '#fee2e2' : (lv <= 30 && !B.charging ? '#fef3c7' : '#f1f5f9');
     el.style.color = lv <= 15 && !B.charging ? '#b91c1c' : '#334155';
     push(lv);

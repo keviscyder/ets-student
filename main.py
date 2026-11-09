@@ -107,7 +107,7 @@ from utils.db import get_client
 import importlib as _il
 import utils.storage as _storage
 _il.reload(_storage)
-from utils.storage import upload_image, upload_draft, find_draft
+from utils.storage import upload_image, upload_draft, find_draft, upload_png
 from utils.sketch import sketch_pad
 import utils.game as _game_mod
 _il.reload(_game_mod)
@@ -425,8 +425,21 @@ def _pad_change(key, prev):
     return was_drawing, None, ("" if was_drawing else prev)
 
 
+def _img(url, caption=None):
+    """Paveikslėlis originalia raiška (ne didesnis nei ekranas) – be Streamlit perspaudimo."""
+    if not url:
+        return
+    import html as _h
+    cap = f'<div style="font-size:.85rem;color:#64748b">{_h.escape(caption)}</div>' if caption else ""
+    st.markdown(f'<img src="{_h.escape(url)}" style="max-width:100%;height:auto;border:1px solid #e2e8f0;border-radius:4px">{cap}',
+                unsafe_allow_html=True)
+
+
 def _upload_pad(data_url):
-    raw = base64.b64decode(data_url.split(",", 1)[1])
+    head, b64 = data_url.split(",", 1)
+    raw = base64.b64decode(b64)
+    if "image/png" in head:   # brėžinys – be perspaudimo, kad liktų ryškus
+        return upload_png(supabase, raw, folder="answers")
     return upload_image(supabase, io.BytesIO(raw), folder="answers")
 
 
@@ -717,7 +730,7 @@ def _practice_check(tq, q):
     """Pratybų režimas: „Patikrinti“ parodo, ar atsakymas teisingas. Po 2 klaidų parodomas teisingas."""
     tid = tq["id"]
     if q["type"] == "image_upload" or is_open_question(q):
-        st.caption(T("📝 Šį atsakymą peržiūrės mokytojas."))
+        st.caption(T("Šį atsakymą peržiūrės mokytojas."))
         return
     chk = st.session_state.setdefault("_chk", {})
     if st.button("Patikrinti", key=f"chk_{tid}"):
@@ -732,13 +745,13 @@ def _practice_check(tq, q):
                         chk.get(tid, (None, 0))[1] + (0 if ok else 1))
     res, tries = chk.get(tid, (None, 0))
     if res == "ok":
-        st.success("✅ Teisingai!")
+        st.success("Teisingai!")
     elif res == "part":
-        st.warning("🟡 Iš dalies teisingai – pabandyk patobulinti.")
+        st.warning("Iš dalies teisingai – pabandyk patobulinti.")
     elif res == "teacher":
-        st.info(T("🤔 Atsakymą peržiūrės mokytojas."))
+        st.info(T("Atsakymą peržiūrės mokytojas."))
     elif res == "bad":
-        st.error("❌ Dar ne. Pabandyk dar kartą.")
+        st.error("Dar ne. Pabandyk dar kartą.")
     elif res is None and tid in chk:
         st.caption("Pirma atsakyk, tada spausk „Patikrinti“.")
     if res in ("bad", "part") and tries >= 2:
@@ -808,7 +821,7 @@ def _tts_button(q, prompt_text, key):
 
     @st.fragment
     def _f():
-        if st.button("🔊 Klausyti", key=f"tts_{key}"):
+        if st.button("Klausyti", key=f"tts_{key}"):
             try:
                 st.audio(_tts_audio(_speakable(q, prompt_text), lang), format="audio/mp3", autoplay=True)
             except Exception:
@@ -918,7 +931,7 @@ elif st.session_state.step == "enter_name":
         if match:
 
             st.success(
-                T(f"✅ {match.get('display_name') or match['name']} — rasta klasės sąraše")
+                T(f"{match.get('display_name') or match['name']} — rasta klasės sąraše")
             )
 
             pin_ok = True
@@ -946,7 +959,7 @@ elif st.session_state.step == "enter_name":
         else:
 
             st.warning(
-                T("❌ Toks vardas nerastas šioje klasėje. "
+                T("Toks vardas nerastas šioje klasėje. "
                   "Patikrink rašybą arba kreipkis į mokytoją.")
             )
 
@@ -1052,7 +1065,7 @@ elif st.session_state.step == "enter_code":
 
                     if _busy_elsewhere(submission):
                         st.error(
-                            T("🔒 Šis mokinys jau sprendžia testą kitame įrenginyje. "
+                            T("Šis mokinys jau sprendžia testą kitame įrenginyje. "
                               "Testą galima spręsti tik viename įrenginyje. "
                               "Jei tai tu ir įrenginys sugedo – palauk 2 minutes ir bandyk dar kartą "
                               "arba kreipkis į mokytoją.")
@@ -1144,8 +1157,8 @@ elif st.session_state.step == "taking_test":
             return
         if st.session_state.get("_bc_seen") != b.get("broadcast_at"):
             st.session_state["_bc_seen"] = b.get("broadcast_at")
-            st.toast("📢 " + b["broadcast"])
-        st.info(T("📢 **Mokytojas:** ") + b["broadcast"])
+            st.toast("" + b["broadcast"])
+        st.info(T("**Mokytojas:** ") + b["broadcast"])
 
     _broadcast()
 
@@ -1205,7 +1218,7 @@ elif st.session_state.step == "taking_test":
                  font-family:sans-serif;
                  color:#333;
              ">
-            ⏱️ Liko laiko: --:--
+            Liko laiko: --:--
         </div>
 
         <script>
@@ -1220,7 +1233,7 @@ elif st.session_state.step == "taking_test":
 
             if (remainingMs <= 0) {{
 
-                el.innerText = "⏱️ Laikas baigėsi. Pateikiama...";
+                el.innerText = "Laikas baigėsi. Pateikiama...";
 
                 // Automatiškai paspaudžiam "Pateikti testą" (vieną kartą).
                 if (!window.__autoSubmitted) {{
@@ -1252,7 +1265,7 @@ elif st.session_state.step == "taking_test":
                 .padStart(2, '0');
 
             el.innerText =
-                "⏱️ Liko laiko: " + m + ":" + s;
+                "Liko laiko: " + m + ":" + s;
 
             if (totalSec <= 60) {{
                 el.style.color = "#dc2626";
@@ -1274,7 +1287,7 @@ elif st.session_state.step == "taking_test":
 
 
     # --------------------------------------------------------
-    # SKAIČIUOTUVAS (plaukiojantis mygtukas 🧮 kairėje apačioje)
+    # SKAIČIUOTUVAS (plaukiojantis mygtukas kairėje apačioje)
     # Veikia tik naršyklėje, serverio neapkrauna.
     # --------------------------------------------------------
 
@@ -1288,7 +1301,7 @@ elif st.session_state.step == "taking_test":
     )
 
     # --------------------------------------------------------
-    # BENDRAS JUODRAŠTIS (mygtukas „✏️ Juodraštis“ apačioje)
+    # BENDRAS JUODRAŠTIS (mygtukas „Juodraštis“ apačioje)
     # Piešiama tik planšetėje, į serverį siunčiama tik uždarius.
     # --------------------------------------------------------
 
@@ -1426,10 +1439,7 @@ elif st.session_state.step == "taking_test":
 
         if q.get("prompt_image_url"):
 
-            st.image(
-                q["prompt_image_url"],
-                width=350,
-            )
+            _img(q["prompt_image_url"])
 
 
         # ====================================================
@@ -1491,7 +1501,7 @@ elif st.session_state.step == "taking_test":
 
         elif q["type"] == "game":
 
-            st.caption("🎮 " + GAME_KINDS.get(game_kind(q), "Mini žaidimas"))
+            st.caption("" + GAME_KINDS.get(game_kind(q), "Mini žaidimas"))
             game_widget(
                 q,
                 seed=f"{submission['id']}_{tq['id']}",
@@ -1507,7 +1517,7 @@ elif st.session_state.step == "taking_test":
 
         elif q["type"] == "image_upload":
 
-            st.caption("✍️ Spręsk čia: rašyk pirštu arba rašikliu. Lapas išsaugomas automatiškai.")
+            st.caption("Spręsk čia: rašyk pirštu arba rašikliu. Lapas išsaugomas automatiškai.")
             sketch_pad(
                 key=f"draw_{tq['id']}",
                 initial_url=(
@@ -1539,7 +1549,7 @@ elif st.session_state.step == "taking_test":
         # Atidaromas tik paspaudus, kad senos planšetės neapsunktų.
         # ====================================================
 
-        # (Juodraštis dabar vienas bendras – mygtukas „✏️ Juodraštis“ apačioje.)
+        # (Juodraštis dabar vienas bendras – mygtukas „Juodraštis“ apačioje.)
 
         # PRATYBOS: mokinys gali pasitikrinti atsakymą iškart
         if assignment.get("kind") == "practice":
@@ -1555,7 +1565,7 @@ elif st.session_state.step == "taking_test":
     st.divider()
 
     st.button(
-        "✅ Pateikti testą",
+        "Pateikti testą",
         type="primary",
         on_click=_request_submit,
     )
@@ -1638,7 +1648,7 @@ elif st.session_state.step == "taking_test":
 elif st.session_state.step == "other_device":
 
     st.error(
-        "🔒 Šis testas dabar atidarytas kitame įrenginyje, todėl čia jis sustabdytas. "
+        "Šis testas dabar atidarytas kitame įrenginyje, todėl čia jis sustabdytas. "
         "Tavo atsakymai išsaugoti."
     )
     if st.button("Grįžti į pradžią"):
@@ -1706,21 +1716,21 @@ elif st.session_state.step == "results":
         st.markdown(f"**{i}. {_p}**")
 
         if q.get("prompt_image_url"):
-            st.image(q["prompt_image_url"], width=350)
+            _img(q["prompt_image_url"])
 
         if q["type"] == "image_upload":
             if r.get("image_url"):
-                st.image(r["image_url"], width=350, caption="Tavo sprendimas")
+                _img(r["image_url"], "Tavo sprendimas")
             else:
                 st.caption("Sprendimas neįkeltas.")
         elif q["type"] == "game":
-            st.text("🎮 Mini žaidimas " + ("atliktas" if (r.get("text_answer") or "").strip() else "neatliktas"))
+            st.text("Mini žaidimas " + ("atliktas" if (r.get("text_answer") or "").strip() else "neatliktas"))
         elif is_lab(q):
             _f, _tot = lab_filled(q, r.get("text_answer"))
             if _tot:
-                st.text(f"🔬 Užpildyta laukelių: {_f} iš {_tot}")
+                st.text(f"Užpildyta laukelių: {_f} iš {_tot}")
             if r.get("image_url"):
-                st.image(r["image_url"], width=350, caption="Tavo brėžinys")
+                _img(r["image_url"], "Tavo brėžinys")
         else:
             st.text(f"Tavo atsakymas: {r.get('text_answer') or '—'}")
 
@@ -1731,11 +1741,11 @@ elif st.session_state.step == "results":
         else:
             score = float(r["score"])
             if score >= points:
-                mark = "✅"
+                mark = "Teisinga:"
             elif score <= 0:
-                mark = "❌"
+                mark = "Neteisinga:"
             else:
-                mark = "🟡"
+                mark = "Iš dalies:"
             st.markdown(
                 f"{mark} **{_fmt_points(score)} / {_fmt_points(points)} tšk.**"
             )

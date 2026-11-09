@@ -16,23 +16,24 @@
 </head>
 <body>
 <div id="bar">
-  <span class="b on" id="pen-black" title="Juodas rašiklis">✏️ Juodas</span>
-  <span class="b" id="pen-blue" title="Mėlynas rašiklis">🔵 Mėlynas</span>
-  <span class="b" id="eraser" title="Trintukas">🧽 Trintukas</span>
+  <span class="b on" id="pen-black" title="Juodas rašiklis">Juodas</span>
+  <span class="b" id="pen-blue" title="Mėlynas rašiklis">Mėlynas</span>
+  <span class="b" id="eraser" title="Trintukas">Trintukas</span>
   <span class="sep"></span>
   <span class="b" id="thin">Plonas</span>
   <span class="b" id="thick">Storas</span>
   <span class="sep"></span>
   <span class="b" id="undo" title="Atšaukti paskutinį brūkšnį">↶ Atgal</span>
-  <span class="b" id="clear" title="Išvalyti lapą">🗑 Išvalyti</span>
-  <span class="b" id="more" title="Pridėti vietos apačioje">➕ Daugiau vietos</span>
+  <span class="b" id="clear" title="Išvalyti lapą">Išvalyti</span>
+  <span class="b" id="more" title="Pridėti vietos apačioje">Daugiau vietos</span>
   <span id="st"></span>
 </div>
 <div id="wrap"><canvas id="c"></canvas></div>
 <script>
 (function () {
   var C = document.getElementById('c'), X = C.getContext('2d');
-  var DPR = 1;  // senoms planšetėms: mažiau atminties
+  // Ryškumui – ekrano tankis (bet ne daugiau kaip 2, kad senos planšetės neužsikirstų)
+  var DPR = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
   var W = 0, H = 650, GRID = 25;
   var strokes = [], cur = null, bg = null, bgUrl = null, color = '#111827', width = 2.5, erase = false;
   var penSeen = false, sendTimer = null, counter = 0, cleared = false;
@@ -101,7 +102,7 @@
       counter += 1;
       var empty = strokes.length === 0 && (!bg || cleared);
       send('streamlit:setComponentValue', {
-        value: empty ? null : { n: counter, data: C.toDataURL('image/jpeg', 0.7) },
+        value: empty ? null : { n: counter, data: C.toDataURL('image/png') },
         dataType: 'json'
       });
       status(empty ? '' : '✓ Išsaugota');
@@ -127,10 +128,10 @@
     if (!strokes.length && (!bg || cleared)) return;
     if (!clearArmed) {           // pirmas paspaudimas - paklausiam patvirtinimo
       b.textContent = 'Tikrai išvalyti?'; b.style.background = '#fee2e2';
-      clearArmed = setTimeout(function () { clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = ''; }, 3000);
+      clearArmed = setTimeout(function () { clearArmed = null; b.textContent = 'Išvalyti'; b.style.background = ''; }, 3000);
       return;
     }
-    clearTimeout(clearArmed); clearArmed = null; b.textContent = '🗑 Išvalyti'; b.style.background = '';
+    clearTimeout(clearArmed); clearArmed = null; b.textContent = 'Išvalyti'; b.style.background = '';
     strokes = []; cleared = true; redraw(); changed();
   };
   document.getElementById('more').onclick = function () { H += 400; resize(); changed(); };
