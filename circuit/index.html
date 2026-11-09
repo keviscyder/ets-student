@@ -8,7 +8,10 @@
      kaip ir rašymo lape (utils/sketch.py). Kodas be naujos JS sintaksės –
      veikia ir senose planšetėse. -->
 <style>
-  html, body { margin: 0; padding: 0; background: transparent; font-family: "Source Sans Pro", Arial, sans-serif; color: #1e293b; }
+  html { margin: 0; padding: 0; background: transparent; }
+  /* Savas šviesus fonas – įrankiai įskaitomi ir tamsiame Streamlit režime */
+  body { margin: 0; padding: 8px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;
+         font-family: "Source Sans Pro", Arial, sans-serif; color: #1e293b; box-sizing: border-box; }
   .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 3px 0; }
   .b { font-size: 14px; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #1e293b;
        cursor: pointer; user-select: none; -webkit-user-select: none; display: inline-flex; align-items: center; gap: 5px; line-height: 1.2; }
