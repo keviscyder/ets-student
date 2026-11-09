@@ -340,10 +340,54 @@ import streamlit.components.v1 as _components
 _sheet = _components.declare_component("ets_labsheet", path=str(Path(__file__).resolve().parent.parent / "labsheet"))
 
 
+_FS_JS = r"""
+(function(){
+  var P = window.parent, D = P.document;
+  if (D.getElementById('ets-fs-btn')) return;
+  // Programa gali būti įdėta į Streamlit Cloud rėmą – tada per visą ekraną rodom viršutinį langą
+  var T = P; try { if (P.top && P.top.document) T = P.top; } catch (e) {}
+  var TD = T.document, root = TD.documentElement;
+  var req = root.requestFullscreen || root.webkitRequestFullscreen;
+  if (!req) return;
+  var isFs = function(){ return TD.fullscreenElement || TD.webkitFullscreenElement; };
+  var b = D.createElement('button');
+  b.id = 'ets-fs-btn'; b.type = 'button';
+  b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99990;font:15px/1.2 "Times New Roman",Times,serif;' +
+    'padding:6px 12px;border:1px solid #767676;border-radius:3px;background:#efefef;color:#000;cursor:pointer;opacity:.92';
+  var label = function(){ b.textContent = isFs() ? 'Išeiti iš viso ekrano' : 'Visas ekranas'; };
+  label();
+  b.onclick = function(){
+    try {
+      if (isFs()) { (TD.exitFullscreen || TD.webkitExitFullscreen).call(TD); }
+      else { var r = req.call(root); if (r && r.catch) r.catch(function(){}); }
+    } catch (e) {}
+  };
+  TD.addEventListener('fullscreenchange', label); TD.addEventListener('webkitfullscreenchange', label);
+  D.body.appendChild(b);
+})();
+"""
+
+
+def _fullscreen_button():
+    """Mygtukas „Visas ekranas“ viršuje dešinėje (jei naršyklė tai leidžia)."""
+    import json
+    import streamlit.components.v1 as components
+    components.html(
+        "<script>(function(){var P=window.parent;var el=P.document.createElement('script');el.textContent="
+        + json.dumps(_FS_JS) + ";P.document.head.appendChild(el);})();</script>",
+        height=0,
+    )
+
+
 def render_lab_sheet(labs, img_url_for):
     """Visas laboratorinis darbas vienu lapu, kaip spausdintas darbo lapas.
     Lapas dalijamas ties brėžimo vietomis – ten įterpiamas schemų lapas."""
-    st.markdown("<style>.block-container{max-width:900px !important}</style>", unsafe_allow_html=True)
+    st.markdown(
+        "<style>.block-container{max-width:min(1500px,100%) !important;"
+        "padding:0.6rem max(14px,2.2vw) 4rem !important}</style>",
+        unsafe_allow_html=True,
+    )
+    _fullscreen_button()
     title = (lab_spec(labs[0]["question_bank"]).get("title") or "") if labs else ""
     title = re.sub(r"^[HS]\d\.\s*", "", title)
     toc = [{"tid": t["id"], "title": t["question_bank"]["prompt"]} for t in labs]
@@ -373,6 +417,6 @@ def render_lab_sheet(labs, img_url_for):
         else:
             try:
                 from utils.sketch import circuit_pad
-                circuit_pad(key=f"draft_{x['id']}", initial_url=img_url_for(x["id"]), height=520)
+                circuit_pad(key=f"draft_{x['id']}", initial_url=img_url_for(x["id"]), height=640)
             except Exception:
                 pass

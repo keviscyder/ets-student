@@ -834,10 +834,24 @@ _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="
 _GUARD_JS = (Path(__file__).parent / "assets" / "typing_guard.js").read_text(encoding="utf-8")
 _FORM_JS = (Path(__file__).parent / "assets" / "formulas.js").read_text(encoding="utf-8")
 _BATT_JS = (Path(__file__).parent / "assets" / "battery.js").read_text(encoding="utf-8")
+# Streamlit Cloud rėmo mygtukas „Manage app“ (matomas tik programos savininkui) – paslepiam
+components.html(
+    """<script>(function(){try{var T=window.parent.top,D=T.document;
+    if(D.getElementById('ets-hide-manage'))return;
+    var st=D.createElement('style');st.id='ets-hide-manage';
+    st.textContent='[data-testid="manage-app-button"]{display:none !important}';
+    D.head.appendChild(st);
+    var hide=function(){var b=D.querySelectorAll('button,a');for(var i=0;i<b.length;i++){
+      if(/Manage app/i.test(b[i].textContent||'')){var e=b[i];e.style.setProperty('display','none','important');
+      if(e.parentElement&&e.parentElement.children.length===1)e.parentElement.style.setProperty('display','none','important');}}};
+    hide();new T.MutationObserver(hide).observe(D.body,{childList:true,subtree:true});
+    }catch(e){}})();</script>""",
+    height=0,
+)
 if st.session_state.get("step") != "taking_test":
     # Ne testo metu skaičiuotuvo nerodom
     components.html(
-        "<script>try{['ets-calc-btn','ets-calc','ets-draft-btn','ets-draft','ets-form-btn','ets-form'].forEach(function(i){"
+        "<script>try{['ets-calc-btn','ets-calc','ets-draft-btn','ets-draft','ets-form-btn','ets-form','ets-fs-btn'].forEach(function(i){"
         "var e=window.parent.document.getElementById(i);if(e)e.remove();});}catch(e){}</script>",
         height=0,
     )
@@ -1358,7 +1372,16 @@ elif st.session_state.step == "taking_test":
     # Veikia tik naršyklėje, serverio neapkrauna.
     # --------------------------------------------------------
 
-    components.html(
+    _is_lab_test = any(is_lab(_t["question_bank"]) for _t in questions)
+    if _is_lab_test:
+        # Laboratoriniame darbe plaukiojančių įrankių nėra: lapas per visą ekraną
+        components.html(
+            "<script>try{['ets-calc-btn','ets-calc','ets-draft-btn','ets-draft','ets-form-btn','ets-form'].forEach(function(i){"
+            "var e=window.parent.document.getElementById(i);if(e)e.remove();});}catch(e){}</script>",
+            height=0,
+        )
+    else:
+      components.html(
         "<script>(function(){var P=window.parent;"
         "if(P.document.getElementById('ets-calc-btn'))return;"
         "var el=P.document.createElement('script');el.textContent="
@@ -1373,7 +1396,7 @@ elif st.session_state.step == "taking_test":
     # --------------------------------------------------------
 
     # Formulynas (VBE fizikos priedas) – tik testuose, kuriems mokytojas jį įjungė
-    if (assignment.get("tests") or {}).get("show_formulas"):
+    if (assignment.get("tests") or {}).get("show_formulas") and not _is_lab_test:
         components.html(
             "<script>(function(){var P=window.parent;"
             "if(P.document.getElementById('ets-form-btn'))return;"
@@ -1400,7 +1423,8 @@ elif st.session_state.step == "taking_test":
     )
 
     _draft_cfg = {"key": submission["id"], "url": st.session_state.get("_draft_url")}
-    components.html(
+    if not _is_lab_test:
+      components.html(
         "<script>(function(){var P=window.parent;P.__etsDraftCfg="
         + json.dumps(_draft_cfg)
         + ";var el=P.document.createElement('script');el.textContent="
