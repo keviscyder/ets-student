@@ -137,7 +137,6 @@ from utils.test_queries import (
     get_all_classes,
     find_student_in_class,
     find_assignment_by_code,
-    list_class_students,
     get_assignment_by_code,
     get_or_create_submission,
     get_test_questions_for_student,
@@ -1056,29 +1055,24 @@ if st.session_state.step == "code":
 
 elif st.session_state.step == "pick_name":
 
-    _students = list_class_students(supabase, st.session_state.class_id)
-    if not _students:
-        st.error(T("Šioje klasėje dar nėra mokinių sąrašo. Kreipkis į mokytoją."))
-    else:
-        _sid = st.selectbox(
-            T("Pasirink savo vardą"),
-            options=[s["id"] for s in _students],
-            index=None,
-            placeholder="Pradėk rašyti vardą arba pavardę…",
-            format_func=lambda x: next(s["name"] for s in _students if s["id"] == x),
-        )
-        _match = next((s for s in _students if s["id"] == _sid), None)
-        _pin_ok = True
-        if _match and _match.get("pin"):
+    # Vardas įrašomas (sąrašas nerodomas – kiti mokiniai nematomi).
+    _typed = st.text_input("Vardas Pavardė", key="_name_in", placeholder="pvz. Jonas Jonaitis")
+    _match = find_student_in_class(supabase, st.session_state.class_id, _typed) if _typed.strip() else None
+    _pin_ok = True
+    if _typed.strip() and not _match:
+        st.warning(T("Toks vardas šioje klasėje nerastas. Patikrink rašybą arba kreipkis į mokytoją."))
+    if _match:
+        st.success(f"{_match.get('display_name') or _match['name']}")
+        if _match.get("pin"):
             _pin = st.text_input("Tavo asmeninis kodas", type="password", max_chars=8, help=T("Kodą tau davė mokytojas."))
             _pin_ok = _pin.strip() == str(_match["pin"]).strip()
             if _pin and not _pin_ok:
                 st.error("Neteisingas asmeninis kodas.")
-        if st.button("Pradėti", type="primary", disabled=not (_match and _pin_ok), use_container_width=True):
-            st.session_state.student_id = _match["id"]
-            st.session_state.student_name = _match["name"]
-            st.session_state._acc = _match.get("accommodations") or {}
-            _start_with_code(st.session_state._code)
+    if st.button("Pradėti", type="primary", disabled=not (_match and _pin_ok), use_container_width=True):
+        st.session_state.student_id = _match["id"]
+        st.session_state.student_name = _match.get("display_name") or _match["name"]
+        st.session_state._acc = _match.get("accommodations") or {}
+        _start_with_code(st.session_state._code)
     st.button("← Kitas kodas", on_click=_goto, args=("code",))
 
 
