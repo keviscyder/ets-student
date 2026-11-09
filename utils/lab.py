@@ -416,7 +416,8 @@ def render_lab_sheet(labs, img_url_for):
     for ci, (kind, x) in enumerate(chunks):
         if kind == "sheet":
             values = {p["tid"]: _vals(p["tid"], st.session_state.get(f"ans_{p['tid']}")) for p in x}
-            _sheet(sheet={"master": ci == 0, "title": title, "toc": toc, "parts": x}, values=values, fig0=fig,
+            from utils.terms import people_deep
+            _sheet(sheet=people_deep({"master": ci == 0, "title": title, "toc": toc, "parts": x}), values=values, fig0=fig,
                    key=f"labsheet_{ci}", default=None)
             fig += sum(1 for p in x for b in p["blocks"][p["from"]:p["to"]] if b.get("t") == "img")
         else:

@@ -30,13 +30,60 @@ _RULES = [
 ]
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _class_inst(class_id: str):
+    """Klasės/grupės savininko įstaigos tipas ('mokykla' | 'aukstoji') arba None."""
+    try:
+        from utils.db import get_client
+        r = get_client().rpc("class_institution", {"p_class": class_id}).execute()
+        return r.data if isinstance(r.data, str) else None
+    except Exception:
+        return None
+
+
 def is_uni() -> bool:
+    """Ar rodyti aukštosios mokyklos žodyną. Kai jau žinoma klasė/grupė (įvedus kodą),
+    sprendžia jos mokytojo/dėstytojo paskyros tipas; kitaip – adreso ?m=aukstoji."""
+    cid = st.session_state.get("class_id")
+    if cid:
+        inst = _class_inst(str(cid))
+        if inst:
+            return inst == "aukstoji"
     if "_uni" not in st.session_state:
         try:
             st.session_state._uni = (st.query_params.get("m") or "").lower() in ("aukstoji", "universitetas", "uni")
         except Exception:
             st.session_state._uni = False
     return bool(st.session_state._uni)
+
+
+_STUD = {v: k for k, v in _MOKIN.items()}
+_TO_SCHOOL = [
+    (_w("student", "uose|ams|ais|as|o|ui|ą|u|e|ai|ų|us"),
+     lambda m: _case(m.group(1), "mokin" + _STUD.get(m.group(2).lower(), m.group(2)))),
+    (_w("dėstytoj", "uose|ams|ais|as|o|ui|ą|u|e|ai|ų|us"), lambda m: _case(m.group(1), "mokytoj" + m.group(2))),
+]
+
+
+def people(text: str) -> str:
+    """Darbo turinio žmonių žodžiai griežtai pagal įstaigą (abiem kryptimis):
+    mokykloje – mokytojas/mokinys, aukštojoje – dėstytojas/studentas."""
+    if not text or not isinstance(text, str):
+        return text
+    for rx, f in (_RULES[:2] if is_uni() else _TO_SCHOOL):
+        text = rx.sub(f, text)
+    return text
+
+
+def people_deep(x):
+    """people() visoms eilutėms struktūroje (paveikslėlių failų vardai nekeičiami)."""
+    if isinstance(x, str):
+        return people(x)
+    if isinstance(x, list):
+        return [people_deep(v) for v in x]
+    if isinstance(x, dict):
+        return {k: (v if k in ("src", "t") else people_deep(v)) for k, v in x.items()}
+    return x
 
 
 def T(text: str) -> str:
