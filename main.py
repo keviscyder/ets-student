@@ -119,6 +119,9 @@ import io
 import importlib
 import utils.grading as _grading
 import utils.test_queries as _test_queries
+import utils.lab as _lab_mod
+importlib.reload(_lab_mod)
+from utils.lab import is_lab, lab_sync, render_lab, filled as lab_filled
 importlib.reload(_grading)
 importlib.reload(_test_queries)
 from utils.grading import (auto_grade, is_open_question, accepted_answers, GAME_KINDS, game_kind, game_results,
@@ -326,7 +329,10 @@ def _still_my_device():
 
 def _order_questions(questions, seed):
     """Kiekvienam mokiniui klausimai kita tvarka (bet visada ta pati tam pačiam
-    mokiniui). Sprendimo nuotraukų uždaviniai paliekami gale."""
+    mokiniui). Sprendimo nuotraukų uždaviniai paliekami gale.
+    Laboratorinio darbo dalys visada rodomos darbo lapo tvarka."""
+    if any(is_lab(tq["question_bank"]) for tq in questions):
+        return list(questions)
     normal = [tq for tq in questions if tq["question_bank"]["type"] != "image_upload"]
     photos = [tq for tq in questions if tq["question_bank"]["type"] == "image_upload"]
     random.Random(f"order_{seed}").shuffle(normal)
@@ -469,6 +475,7 @@ def _autosave(force_progress=False):
     """
     if st.session_state.get("step") != "taking_test":
         return
+    lab_sync(st.session_state.get("test_questions") or [])
     if st.session_state.get("_draft_pending") and _save_draft(st.session_state._draft_pending):
         st.session_state._draft_pending = None
     submission = st.session_state.submission
@@ -1343,9 +1350,48 @@ elif st.session_state.step == "taking_test":
             st.session_state[_k] = _v
 
 
+    # LABORATORINIS DARBAS: rodoma viena darbo dalis vienu metu
+    # (mažiau laukelių ekrane – greičiau veikia planšetėse).
+    _labs = [t for t in questions if is_lab(t["question_bank"])]
+    _lab_cur = None
+    if _labs:
+        st.markdown("<style>.block-container{max-width:1100px !important}</style>", unsafe_allow_html=True)
+        _n = len(_labs)
+        if st.session_state.get("_lab_sel") not in range(_n):
+            st.session_state["_lab_sel"] = 0
+
+        def _lab_label(i):
+            _t = _labs[i]
+            _f, _tot = lab_filled(_t["question_bank"], st.session_state.get(f"ans_{_t['id']}"))
+            return f"{i + 1}/{_n}. {_t['question_bank']['prompt']}" + (f"  ·  {_f}/{_tot}" if _tot else "")
+
+        st.selectbox("Darbo dalis", list(range(_n)), format_func=_lab_label, key="_lab_sel")
+        _lab_cur = _labs[st.session_state["_lab_sel"]]["id"]
+
     for tq in questions:
 
         q = tq["question_bank"]
+
+        if is_lab(q):
+            if tq["id"] != _lab_cur:
+                continue
+            st.divider()
+            st.markdown(f"### {q['prompt']}" + (f"  \n<small>{q['points']} tšk.</small>" if q.get("points") else ""),
+                        unsafe_allow_html=True)
+            render_lab(tq, sketch_pad=sketch_pad,
+                       img_url=(st.session_state.get("_img_urls", {}).get(tq["id"])
+                                or st.session_state.get("_restored_img", {}).get(tq["id"])))
+            _i = st.session_state["_lab_sel"]
+
+            def _go(d):
+                st.session_state["_lab_sel"] = max(0, min(len(_labs) - 1, st.session_state["_lab_sel"] + d))
+
+            _c1, _c2 = st.columns(2)
+            if _i > 0:
+                _c1.button("← Ankstesnė dalis", key=f"labprev_{_i}", on_click=_go, args=(-1,), use_container_width=True)
+            if _i < len(_labs) - 1:
+                _c2.button("Kita dalis →", key=f"labnext_{_i}", on_click=_go, args=(1,), use_container_width=True)
+            continue
 
         st.divider()
 
@@ -1651,6 +1697,12 @@ elif st.session_state.step == "results":
                 st.caption("Sprendimas neįkeltas.")
         elif q["type"] == "game":
             st.text("🎮 Mini žaidimas " + ("atliktas" if (r.get("text_answer") or "").strip() else "neatliktas"))
+        elif is_lab(q):
+            _f, _tot = lab_filled(q, r.get("text_answer"))
+            if _tot:
+                st.text(f"🔬 Užpildyta laukelių: {_f} iš {_tot}")
+            if r.get("image_url"):
+                st.image(r["image_url"], width=350, caption="Tavo brėžinys")
         else:
             st.text(f"Tavo atsakymas: {r.get('text_answer') or '—'}")
 

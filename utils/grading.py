@@ -63,6 +63,9 @@ def auto_grade(question: dict, submitted_answer: str):
     "beveik teisingas", bet ne pakankamai tikras, kad automatiškai įskaityti).
     """
     q_type = question["type"]
+    if q_type == "lab":
+        # Laboratorinio darbo dalį vertina mokytojas; informacinė dalis (0 tšk.) – iškart 0.
+        return (0, "auto") if not float(question.get("points") or 0) else (None, "teacher")
     if q_type == "game":
         return grade_game(question, submitted_answer or "")
     points = question.get("points", 1)
