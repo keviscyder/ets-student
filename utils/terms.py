@@ -55,6 +55,8 @@ def filter_classes(supabase, classes):
         rows = supabase.table("teachers").select("id, institution").execute().data or []
     except Exception:
         return classes
+    if not rows:   # mokytojų sąrašas neprieinamas (pvz. ribotas raktas) – rodom visas
+        return classes
     uni_teachers = {r["id"] for r in rows if r.get("institution") == "aukstoji"}
     want = is_uni()
     return [c for c in classes if (c.get("teacher_id") in uni_teachers) == want]
