@@ -1060,12 +1060,15 @@ if st.session_state.step == "code":
         st.session_state._lang_q = "lt" if _en else "en"
         st.rerun()
     # atėjus per nuorodą / QR su kodu – iškart toliau
-    if _qp and not st.session_state.get("_qp_used"):
-        st.session_state._qp_used = True
+    # Žymė nustatoma tik po paieškos: jei vykdymą nutraukia kitas perkrovimas
+    # (pvz. komponento pranešimas), kitas paleidimas automatiškai bandys dar kartą.
+    if _qp and st.session_state.get("_qp_used") != _qp:
         _go = True
+        code = code or _qp
     if _go and (code or "").strip():
         with st.spinner("Ieškoma..."):
             _a = find_assignment_by_code(supabase, code)
+        st.session_state._qp_used = _qp
         if not _a:
             st.error("Tokio kodo nėra. Patikrink, ar gerai perrašei.")
         else:
