@@ -835,7 +835,7 @@ _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="
 _GUARD_JS = (Path(__file__).parent / "assets" / "typing_guard.js").read_text(encoding="utf-8")
 _FORM_JS = (Path(__file__).parent / "assets" / "formulas.js").read_text(encoding="utf-8")
 _BATT_JS = (Path(__file__).parent / "assets" / "battery.js").read_text(encoding="utf-8")
-# Anglų kalba (mokytojo paskyros kalba arba ?lang=en)
+# Užsienio kalba (mokytojo paskyros kalba arba ?lang=en|de)
 inject_translator()
 
 # Streamlit Cloud rėmo mygtukas „Manage app“ (matomas tik programos savininkui) – paslepiam
@@ -1055,10 +1055,13 @@ if st.session_state.step == "code":
     _go = st.button("Toliau", type="primary", use_container_width=True)
     # kalbos perjungimas (užsienio mokiniams, atėjusiems be nuorodos su ?lang=en)
     from utils.terms import ui_lang
-    _en = ui_lang() == "en"
-    if st.button("Lietuviškai" if _en else "English", key="_lang_btn"):
-        st.session_state._lang_q = "lt" if _en else "en"
-        st.rerun()
+    _cur = ui_lang()
+    _others = [l for l in ("lt", "en", "de") if l != _cur]
+    _names = {"lt": "Lietuviškai", "en": "English", "de": "Deutsch"}
+    for _col, _l in zip(st.columns([1, 1, 3]), _others):
+        if _col.button(_names[_l], key=f"_lang_btn_{_l}", use_container_width=True):
+            st.session_state._lang_q = _l
+            st.rerun()
     # atėjus per nuorodą / QR su kodu – iškart toliau
     # Žymė nustatoma tik po paieškos: jei vykdymą nutraukia kitas perkrovimas
     # (pvz. komponento pranešimas), kitas paleidimas automatiškai bandys dar kartą.

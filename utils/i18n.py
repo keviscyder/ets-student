@@ -1,4 +1,4 @@
-"""Anglų kalba mokinių programėlėje (mokytojams iš užsienio).
+"""Anglų ir vokiečių kalbos mokinių programėlėje (mokytojams iš užsienio).
 
 Python kode tekstai lieka lietuviški. Kai mokytojo/dėstytojo paskyros kalba – anglų
 (arba adrese ?lang=en), į puslapį įterpiamas vertėjas: jis pakeičia matomus tekstus pagal
@@ -14,13 +14,19 @@ import streamlit.components.v1 as components
 
 from utils.terms import is_uni, ui_lang
 
-_DICT = Path(__file__).resolve().parent.parent / "assets" / "i18n_en.json"
+_ASSETS = Path(__file__).resolve().parent.parent / "assets"
 
 _JS = r"""
 (function(){
   var W = window;   // vykdoma programos lange (įterpta kaip <script>), ne komponento rėmelyje
   var CFG = __CFG__;
   try { W.__etsI18n && W.__etsI18n.stop(); } catch (e) {}
+  // kalba pakeista po vertimo: jau išversti tekstai atgal nepasikeis – perkraunama su nauja kalba
+  var prev = W.__etsLang; W.__etsLang = CFG.lang;
+  if (prev && prev !== 'lt' && prev !== CFG.lang) {
+    try { var u = new URL(W.location.href); u.searchParams.set('lang', CFG.lang); W.location.replace(u.toString()); } catch (e) {}
+    return;
+  }
   if (!CFG.on) return;
   var D = CFG.dict, exact = {}, tpls = [];
   var norm = function (s) { return s.replace(/\s+/g, ' ').trim(); };
@@ -30,7 +36,7 @@ _JS = r"""
     tpls.push([new RegExp('^' + norm(k).split('{}').map(esc).join('([\\s\\S]*?)') + '$'), norm(D.tpl[k])]);
   });
   tpls.sort(function (a, b) { return b[0].source.length - a[0].source.length; });
-  var UNI = [[/\bTeachers\b/g,'Lecturers'],[/\bteachers\b/g,'lecturers'],[/\bTeacher\b/g,'Lecturer'],[/\bteacher\b/g,'lecturer'],
+  var UNI = CFG.lang === 'de' ? [[/Lernende/g,'Studierende'],[/Lehrkraft/g,'Lehrperson'],[/Klassen(?!buch)/g,'Gruppen'],[/Klasse/g,'Gruppe'],[/klassen(?!buch)/g,'gruppen'],[/klasse/g,'gruppe']] : [[/\bTeachers\b/g,'Lecturers'],[/\bteachers\b/g,'lecturers'],[/\bTeacher\b/g,'Lecturer'],[/\bteacher\b/g,'lecturer'],
              [/\bClasses\b/g,'Groups'],[/\bclasses\b/g,'groups'],[/\bClass\b/g,'Group'],[/\bclass\b/g,'group'],
              [/\bLessons?\b/g,'Lecture'],[/\blessons?\b/g,'lecture']];
   function tr(t) {
@@ -81,27 +87,28 @@ _JS = r"""
     go(); f.addEventListener('load', go);
   }
   watch(W.document);
-  W.document.documentElement.lang = 'en';
+  W.document.documentElement.lang = CFG.lang;
   W.__etsI18n = { stop: function () { observers.forEach(function (x) { x[0].disconnect(); try { delete x[1].__etsI18n; } catch (e) {} }); observers = []; } };
 })();
 """
 
 
 @st.cache_data(show_spinner=False)
-def _dict():
+def _dict(lang: str = "en"):
     try:
-        return json.loads(_DICT.read_text(encoding="utf-8"))
+        return json.loads((_ASSETS / f"i18n_{lang}.json").read_text(encoding="utf-8"))
     except Exception:
         return {"exact": {}, "tpl": {}}
 
 
 def inject_translator():
     """Įjungia arba išjungia vertimą puslapyje pagal dabartinę kalbą."""
-    on = ui_lang() == "en"
+    lang = ui_lang()
+    on = lang != "lt"
     if not on and not st.session_state.get("_i18n_was_on"):
         return
     st.session_state._i18n_was_on = on
-    cfg = {"on": on, "uni": bool(on and is_uni()), "dict": _dict() if on else {"exact": {}, "tpl": {}}}
+    cfg = {"on": on, "lang": lang, "uni": bool(on and is_uni()), "dict": _dict(lang) if on else {"exact": {}, "tpl": {}}}
     code = _JS.replace("__CFG__", json.dumps(cfg, ensure_ascii=False))
     components.html(
         "<script>(function(){var P=window.parent;var el=P.document.createElement('script');el.textContent="
