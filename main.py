@@ -749,13 +749,13 @@ def _practice_check(tq, q):
     if res == "ok":
         st.success("Teisingai!")
     elif res == "part":
-        st.warning("Iš dalies teisingai – pabandyk patobulinti.")
+        st.warning("Iš dalies teisingai – pabandykite patobulinti.")
     elif res == "teacher":
         st.info(T("Atsakymą peržiūrės mokytojas."))
     elif res == "bad":
-        st.error("Dar ne. Pabandyk dar kartą.")
+        st.error("Dar ne. Pabandykite dar kartą.")
     elif res is None and tid in chk:
-        st.caption("Pirma atsakyk, tada spausk „Patikrinti“.")
+        st.caption("Pirma atsakykite, tada spauskite „Patikrinti“.")
     if res in ("bad", "part") and tries >= 2:
         if q["type"] == "mcq":
             right = q.get("answer_key")
@@ -827,7 +827,7 @@ def _tts_button(q, prompt_text, key):
             try:
                 st.audio(_tts_audio(_speakable(q, prompt_text), lang), format="audio/mp3", autoplay=True)
             except Exception:
-                st.caption(T("Nepavyko įjungti garso – paprašyk mokytojo pagalbos."))
+                st.caption(T("Nepavyko įjungti garso – paprašykite mokytojo pagalbos."))
     _f()
 
 _CALC_JS = (Path(__file__).parent / "assets" / "calculator.js").read_text(encoding="utf-8")
@@ -918,13 +918,13 @@ def _start_with_code(code):
         if not assignment:
 
             st.error(
-                T("Kodas neteisingas arba neatitinka tavo klasės.")
+                T("Kodas neteisingas arba neatitinka jūsų klasės.")
             )
 
         elif assignment.get("student_ids") and st.session_state.student_id not in assignment["student_ids"]:
 
             st.error(
-                T("Šis kodas skirtas ne tau. Pasitikrink kodą arba kreipkis į mokytoją.")
+                T("Šis kodas skirtas ne jums. Pasitikrinkite kodą arba kreipkitės į mokytoją.")
             )
 
         else:
@@ -945,7 +945,7 @@ def _start_with_code(code):
                     st.rerun()
 
                 st.info(
-                    T("Tu jau atlikai šį testą. Rezultatus pamatysi, "
+                    T("Jūs jau atlikote šį testą. Rezultatus pamatysite, "
                       "kai mokytojas juos paskelbs.")
                 )
                 st.stop()
@@ -979,7 +979,7 @@ def _start_with_code(code):
                 if submission["status"] == "submitted":
 
                     st.info(
-                        T("Tu jau atlikai šį testą. "
+                        T("Jūs jau atlikote šį testą. "
                           "Rezultatai perduoti mokytojui.")
                     )
 
@@ -989,8 +989,8 @@ def _start_with_code(code):
                     st.error(
                         T("Šis mokinys jau sprendžia testą kitame įrenginyje. "
                           "Testą galima spręsti tik viename įrenginyje. "
-                          "Jei tai tu ir įrenginys sugedo – palauk 2 minutes ir bandyk dar kartą "
-                          "arba kreipkis į mokytoją.")
+                          "Jei tai jūs ir įrenginys sugedo – palaukite 2 minutes ir bandykite dar kartą "
+                          "arba kreipkitės į mokytoją.")
                     )
                     st.stop()
 
@@ -1049,7 +1049,7 @@ if st.session_state.step == "code":
     except Exception:
         pass
 
-    st.markdown("#### Įvesk kodą")
+    st.markdown("#### Įveskite kodą")
     code = st.text_input("Kodas", value=_qp, max_chars=12, key="_code_in",
                          placeholder="pvz. 3K3TYR", label_visibility="collapsed")
     _go = st.button("Toliau", type="primary", use_container_width=True)
@@ -1070,7 +1070,7 @@ if st.session_state.step == "code":
             _a = find_assignment_by_code(supabase, code)
         st.session_state._qp_used = _qp
         if not _a:
-            st.error("Tokio kodo nėra. Patikrink, ar gerai perrašei.")
+            st.error("Tokio kodo nėra. Patikrinkite, ar gerai perrašėte.")
         else:
             st.session_state.class_id = _a["class_id"]
             st.session_state._code = code.strip().upper()
@@ -1087,11 +1087,11 @@ elif st.session_state.step == "pick_name":
     _match = find_student_in_class(supabase, st.session_state.class_id, _typed) if _typed.strip() else None
     _pin_ok = True
     if _typed.strip() and not _match:
-        st.warning(T("Toks vardas šioje klasėje nerastas. Patikrink rašybą arba kreipkis į mokytoją."))
+        st.warning(T("Toks vardas šioje klasėje nerastas. Patikrinkite rašybą arba kreipkitės į mokytoją."))
     if _match:
         st.success(f"{_match.get('display_name') or _match['name']}")
         if _match.get("pin"):
-            _pin = st.text_input("Tavo asmeninis kodas", type="password", max_chars=8, help=T("Kodą tau davė mokytojas."))
+            _pin = st.text_input("Jūsų asmeninis kodas", type="password", max_chars=8, help=T("Kodą jums davė mokytojas."))
             _pin_ok = _pin.strip() == str(_match["pin"]).strip()
             if _pin and not _pin_ok:
                 st.error("Neteisingas asmeninis kodas.")
@@ -1116,7 +1116,7 @@ elif st.session_state.step == "select_class":
         st.stop()
 
     class_id = st.selectbox(
-        T("Pasirink savo klasę"),
+        T("Pasirinkite savo klasę"),
         options=[c["id"] for c in classes],
         format_func=lambda x: next(
             c["name"] for c in classes if c["id"] == x
@@ -1154,10 +1154,10 @@ elif st.session_state.step == "enter_name":
             pin_ok = True
             if match.get("pin"):
                 pin = st.text_input(
-                    "Tavo asmeninis kodas",
+                    "Jūsų asmeninis kodas",
                     type="password",
                     max_chars=8,
-                    help=T("Kodą tau davė mokytojas."),
+                    help=T("Kodą jums davė mokytojas."),
                 )
                 pin_ok = pin.strip() == str(match["pin"]).strip()
                 if pin and not pin_ok:
@@ -1177,7 +1177,7 @@ elif st.session_state.step == "enter_name":
 
             st.warning(
                 T("Toks vardas nerastas šioje klasėje. "
-                  "Patikrink rašybą arba kreipkis į mokytoją.")
+                  "Patikrinkite rašybą arba kreipkitės į mokytoją.")
             )
 
     if st.button("← Atgal"):
@@ -1193,11 +1193,11 @@ elif st.session_state.step == "enter_name":
 elif st.session_state.step == "enter_code":
 
     st.write(
-        f"Labas, **{st.session_state.student_name.split()[0]}**!"
+        f"Sveiki, **{st.session_state.student_name.split()[0]}**!"
     )
 
     code = st.text_input(
-        "Įvesk kodą"
+        "Įveskite kodą"
     )
 
     if st.button("Pradėti testą", type="primary") and code:
@@ -1220,7 +1220,7 @@ elif st.session_state.step == "taking_test":
     # --------------------------------------------------------
 
     if st.session_state.get("submit_requested"):
-        with st.spinner("Pateikiama... Neuždaryk lango."):
+        with st.spinner("Pateikiama... Neuždarykite lango."):
             _save_and_submit()
         st.session_state.submit_requested = False
         st.rerun()
@@ -1363,7 +1363,7 @@ elif st.session_state.step == "taking_test":
 
             if (totalSec <= 60) {{
                 el.style.color = "#dc2626";
-                el.innerText += "  – paskutinė minutė! Pateik testą.";
+                el.innerText += "  – paskutinė minutė! Pateikite testą.";
             }} else if (totalSec <= 300) {{
                 el.style.color = "#d97706";
                 el.innerText += "  – liko mažiau nei 5 min.";
@@ -1541,7 +1541,7 @@ elif st.session_state.step == "taking_test":
             )
 
             answers[tq["id"]] = st.radio(
-                "Pasirink atsakymą",
+                "Pasirinkite atsakymą",
                 shuffled_options,
                 key=f"ans_{tq['id']}",
                 index=None,
@@ -1560,7 +1560,7 @@ elif st.session_state.step == "taking_test":
                     "Atsakymas",
                     key=f"ans_{tq['id']}",
                     height=130,
-                    placeholder="Parašyk atsakymą ir paaiškinimą",
+                    placeholder="Parašykite atsakymą ir paaiškinimą",
                 )
             else:
                 answers[tq["id"]] = st.text_input(
@@ -1591,7 +1591,7 @@ elif st.session_state.step == "taking_test":
 
         elif q["type"] == "image_upload":
 
-            st.caption("Spręsk čia: rašyk pirštu arba rašikliu. Lapas išsaugomas automatiškai.")
+            st.caption("Spręskite čia: rašykite pirštu arba rašikliu. Lapas išsaugomas automatiškai.")
             sketch_pad(
                 key=f"draw_{tq['id']}",
                 initial_url=(
@@ -1603,12 +1603,12 @@ elif st.session_state.step == "taking_test":
             st.text_input(
                 "Galutinis atsakymas",
                 key=f"final_{tq['id']}",
-                placeholder="Užrašyk galutinį atsakymą, pvz. t = 35 °C",
+                placeholder="Užrašykite galutinį atsakymą, pvz. t = 35 °C",
             )
 
-            with st.expander("Arba nufotografuok sprendimą iš sąsiuvinio"):
+            with st.expander("Arba nufotografuokite sprendimą iš sąsiuvinio"):
                 answers[tq["id"]] = st.file_uploader(
-                    "Įkelk sprendimo nuotrauką",
+                    "Įkelkite sprendimo nuotrauką",
                 type=[
                     "png",
                     "jpg",
@@ -1723,7 +1723,7 @@ elif st.session_state.step == "other_device":
 
     st.error(
         "Šis testas dabar atidarytas kitame įrenginyje, todėl čia jis sustabdytas. "
-        "Tavo atsakymai išsaugoti."
+        "Jūsų atsakymai išsaugoti."
     )
     if st.button("Grįžti į pradžią"):
         _reset_to_start()
@@ -1769,7 +1769,7 @@ elif st.session_state.step == "results":
     percent = round(100 * total / max_total) if max_total else 0
 
     st.metric(
-        "Tavo rezultatas",
+        "Jūsų rezultatas",
         f"{_fmt_points(total)} / {_fmt_points(max_total)} tšk.",
         f"{percent} %",
         delta_color="off",
@@ -1794,7 +1794,7 @@ elif st.session_state.step == "results":
 
         if q["type"] == "image_upload":
             if r.get("image_url"):
-                _img(r["image_url"], "Tavo sprendimas")
+                _img(r["image_url"], "Jūsų sprendimas")
             else:
                 st.caption("Sprendimas neįkeltas.")
         elif q["type"] == "game":
@@ -1804,9 +1804,9 @@ elif st.session_state.step == "results":
             if _tot:
                 st.text(f"Užpildyta laukelių: {_f} iš {_tot}")
             if r.get("image_url"):
-                _img(r["image_url"], "Tavo brėžinys")
+                _img(r["image_url"], "Jūsų brėžinys")
         else:
-            st.text(f"Tavo atsakymas: {r.get('text_answer') or '—'}")
+            st.text(f"Jūsų atsakymas: {r.get('text_answer') or '—'}")
 
         points = float(q["points"] or 0)
 

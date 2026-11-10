@@ -123,16 +123,16 @@ def auto_grade(question: dict, submitted_answer: str):
 
 # ------------------------------------------------------------
 # MINI ŽAIDIMAI (type = "game", options = [rūšis], answer_key = mokytojo tekstas)
-#   match  – „kairė = dešinė“ po vieną eilutėje (sujunk poras)
-#   order  – elementai teisinga tvarka, po vieną eilutėje (sudėliok)
-#   groups – „Grupė: a; b; c“ po vieną eilutėje (surūšiuok)
+#   match  – „kairė = dešinė“ po vieną eilutėje (sujunkite poras)
+#   order  – elementai teisinga tvarka, po vieną eilutėje (sudėliokite)
+#   groups – „Grupė: a; b; c“ po vieną eilutėje (surūšiuokite)
 # Mokinio atsakymas – JSON tekstas.
 # ------------------------------------------------------------
 
 GAME_KINDS = {
-    "match": "Sujunk poras",
-    "order": "Sudėliok eilės tvarka",
-    "groups": "Surūšiuok į grupes",
+    "match": "Sujunkite poras",
+    "order": "Sudėliokite eilės tvarka",
+    "groups": "Surūšiuokite į grupes",
 }
 
 

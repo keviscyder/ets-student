@@ -207,7 +207,7 @@ def _graph(tid, bi, b, vals):
                 if xv is not None and yv is not None:
                     data.append({"x": xv, "y": yv, "Kreivė": names[c]})
         if not data:
-            st.caption("Įrašyk bent vieną tašką (X ir Y reikšmes) – jis atsiras grafike.")
+            st.caption("Įrašykite bent vieną tašką (X ir Y reikšmes) – jis atsiras grafike.")
             return
         try:
             st.markdown(_svg_plot(data, names[x], ", ".join(names[c] for c in ys)), unsafe_allow_html=True)
@@ -323,7 +323,7 @@ def render_lab(tq, sketch_pad=None, img_url=None):
             st.markdown(f'<div class="lab-formula">{b["x"]}</div>', unsafe_allow_html=True)
         elif t == "text":
             st.text_area("Atsakymas", key=_ensure(tid, f"b{i}", vals), height=40 + 26 * int(b.get("rows") or 3),
-                         placeholder="Rašyk čia…", label_visibility="collapsed")
+                         placeholder="Rašykite čia…", label_visibility="collapsed")
         elif t == "pad":
             st.caption("Schemos ir grafiko lapas: elektros elementai, laidai, ašys ir taškai. Brėžinys išsaugomas automatiškai.")
             try:

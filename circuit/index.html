@@ -287,15 +287,15 @@
 
   /* ---------------- įrankių juosta ---------------- */
   var HINTS = {
-    el: 'Pasirink elementą žemiau ir bakstelėk lape. Ką tik padėtas elementas pažymėtas mėlynai – „Pasukti“ jį pasuka. Padėtą elementą galima tempti.',
-    wire: 'Vesk pirštu nuo vieno gnybto iki kito – laidas nusities tinklelio linijomis.',
-    text: 'Bakstelėk, kur rašyti (pvz. R1, U = 12 V, I, A), ir spausk Enter.',
+    el: 'Pasirinkite elementą žemiau ir bakstelėkite lape. Ką tik padėtas elementas pažymėtas mėlynai – „Pasukti“ jį pasuka. Padėtą elementą galima tempti.',
+    wire: 'Veskite pirštu nuo vieno gnybto iki kito – laidas nusities tinklelio linijomis.',
+    text: 'Bakstelėkite, kur rašyti (pvz. R1, U = 12 V, I, A), ir spauskite Enter.',
     pen: 'Laisvas piešimas pirštu ar rašikliu.',
-    axes: 'Grafiko ašys: vesk įstrižai nuo pradžios taško (apačioje kairėje) į viršų dešinėn. Ašių pavadinimus užrašyk su „Tekstas“.',
-    point: 'Bakstelėk – atsiras matavimo taškas.',
-    line: 'Vesk – nubrėš tiesę tarp dviejų taškų (kreivei per taškus naudok „Pieštukas“).',
-    move: 'Tempk elementą, laidą ar tekstą į kitą vietą.',
-    del: 'Bakstelėk ant to, ką nori ištrinti.'
+    axes: 'Grafiko ašys: veskite įstrižai nuo pradžios taško (apačioje kairėje) į viršų dešinėn. Ašių pavadinimus užrašykite su „Tekstas“.',
+    point: 'Bakstelėkite – atsiras matavimo taškas.',
+    line: 'Veskite – nubrėš tiesę tarp dviejų taškų (kreivei per taškus naudokite „Pieštukas“).',
+    move: 'Tempkite elementą, laidą ar tekstą į kitą vietą.',
+    del: 'Bakstelėkite ant to, ką norite ištrinti.'
   };
   function setMode(m) {
     mode = m;
@@ -326,7 +326,7 @@
 
   document.getElementById('rot').onclick = function () {
     if (sel >= 0 && objs[sel] && objs[sel].k === 'el') { push(); objs[sel].r = (objs[sel].r + 1) % 4; redraw(); changed(); }
-    else document.getElementById('hint').textContent = 'Pirma bakstelėk elementą (su „Elementai“ arba „Perkelti“), tada „Pasukti“.';
+    else document.getElementById('hint').textContent = 'Pirma bakstelėkite elementą (su „Elementai“ arba „Perkelti“), tada „Pasukti“.';
   };
   document.getElementById('undo').onclick = function () { if (undoStack.length) { objs = JSON.parse(undoStack.pop()); sel = -1; redraw(); changed(); } };
   var clearArmed = null;
