@@ -125,6 +125,7 @@ from utils.lab import is_lab, lab_sync, render_lab, render_lab_sheet, filled as 
 import utils.terms as _terms_mod
 importlib.reload(_terms_mod)
 from utils.terms import T, filter_classes
+from utils.i18n import inject_translator
 importlib.reload(_grading)
 importlib.reload(_test_queries)
 from utils.grading import (auto_grade, is_open_question, accepted_answers, GAME_KINDS, game_kind, game_results,
@@ -834,6 +835,9 @@ _DRAFT_JS = (Path(__file__).parent / "assets" / "draft.js").read_text(encoding="
 _GUARD_JS = (Path(__file__).parent / "assets" / "typing_guard.js").read_text(encoding="utf-8")
 _FORM_JS = (Path(__file__).parent / "assets" / "formulas.js").read_text(encoding="utf-8")
 _BATT_JS = (Path(__file__).parent / "assets" / "battery.js").read_text(encoding="utf-8")
+# Anglų kalba (mokytojo paskyros kalba arba ?lang=en)
+inject_translator()
+
 # Streamlit Cloud rėmo mygtukas „Manage app“ (matomas tik programos savininkui) – paslepiam
 components.html(
     """<script>(function(){try{var T=window.parent.top,D=T.document;
@@ -1049,6 +1053,12 @@ if st.session_state.step == "code":
     code = st.text_input("Kodas", value=_qp, max_chars=12, key="_code_in",
                          placeholder="pvz. 3K3TYR", label_visibility="collapsed")
     _go = st.button("Toliau", type="primary", use_container_width=True)
+    # kalbos perjungimas (užsienio mokiniams, atėjusiems be nuorodos su ?lang=en)
+    from utils.terms import ui_lang
+    _en = ui_lang() == "en"
+    if st.button("Lietuviškai" if _en else "English", key="_lang_btn"):
+        st.session_state._lang_q = "lt" if _en else "en"
+        st.rerun()
     # atėjus per nuorodą / QR su kodu – iškart toliau
     if _qp and not st.session_state.get("_qp_used"):
         st.session_state._qp_used = True

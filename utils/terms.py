@@ -31,14 +31,45 @@ _RULES = [
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def _class_inst(class_id: str):
-    """Klasės/grupės savininko įstaigos tipas ('mokykla' | 'aukstoji') arba None."""
+def _class_cfg(class_id: str):
+    """Klasės/grupės savininko nustatymai: {'inst': 'mokykla'|'aukstoji', 'lang': 'lt'|'en'} arba None."""
     try:
         from utils.db import get_client
+        r = get_client().rpc("class_settings", {"p_class": class_id}).execute()
+        if isinstance(r.data, dict):
+            return r.data
+    except Exception:
+        pass
+    try:   # senesnė duomenų bazė – tik įstaigos tipas
+        from utils.db import get_client
         r = get_client().rpc("class_institution", {"p_class": class_id}).execute()
-        return r.data if isinstance(r.data, str) else None
+        return {"inst": r.data, "lang": "lt"} if isinstance(r.data, str) else None
     except Exception:
         return None
+
+
+def _class_inst(class_id: str):
+    c = _class_cfg(class_id)
+    return c.get("inst") if c else None
+
+
+def ui_lang() -> str:
+    """Sąsajos kalba. Mokinio pasirinkimas (?lang=en|lt adrese ar mygtukas) – svarbiausias;
+    kitaip, kai klasė žinoma, – jos mokytojo/dėstytojo paskyros kalba; kitaip lietuvių."""
+    if "_lang_q" not in st.session_state:
+        try:
+            q = (st.query_params.get("lang") or "").lower()
+        except Exception:
+            q = ""
+        st.session_state._lang_q = q if q in ("lt", "en") else None
+    if st.session_state._lang_q:
+        return st.session_state._lang_q
+    cid = st.session_state.get("class_id")
+    if cid:
+        c = _class_cfg(str(cid))
+        if c and c.get("lang") in ("lt", "en"):
+            return c["lang"]
+    return "lt"
 
 
 def is_uni() -> bool:
@@ -87,8 +118,9 @@ def people_deep(x):
 
 
 def T(text: str) -> str:
-    """Sąsajos tekstas pagal platformos tipą."""
-    if not text or not is_uni():
+    """Sąsajos tekstas pagal platformos tipą. Anglų kalboje grąžinamas lietuviškas originalas –
+    jį išverčia naršyklėje veikiantis vertėjas (utils/i18n.py), kuris pritaiko ir aukštosios mokyklos žodžius."""
+    if not text or not is_uni() or ui_lang() == "en":
         return text
     for rx, f in _RULES:
         text = rx.sub(f, text)
