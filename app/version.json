@@ -1,5 +1,7 @@
 {
   "versionCode": 7,
   "versionName": "1.6",
-  "apkUrl": "https://raw.githubusercontent.com/keviscyder/ets-student/main/app/E-testavimas.apk"
+  "apkUrl": "https://raw.githubusercontent.com/keviscyder/ets-student/main/app/E-testavimas.apk",
+  "startUrl": "https://etesis.pages.dev/m/",
+  "allowed": "https://etesis.pages.dev/m/|https://etestavimas.streamlit.app/"
 }
