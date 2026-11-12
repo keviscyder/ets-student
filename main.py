@@ -164,6 +164,45 @@ st.set_page_config(
     layout="centered",
 )
 
+# ============================================================
+# PLANŠETĖS PROGRAMĖLĖ -> NAUJA MOKINIŲ SVETAINĖ
+# Planšetės, kurios dar neperėmė naujo adreso iš version.json, atidaro šį
+# puslapį. Jame visame ekrane rodome naują svetainę etesis.pages.dev/m/.
+# Kompiuteriuose ir naršyklėse lieka įprasta Streamlit versija.
+# Grąžinti seną elgesį: NAUJA_SVETAINE_PLANSETEMS = False arba ?senas=1.
+# ============================================================
+NAUJA_SVETAINE_PLANSETEMS = True
+try:
+    _ua0 = st.context.headers.get("User-Agent", "") or ""
+except Exception:
+    _ua0 = ""
+if NAUJA_SVETAINE_PLANSETEMS and "ETSApp/" in _ua0 and st.query_params.get("senas") != "1":
+    import urllib.parse as _up
+    import streamlit.components.v1 as _cmp
+    _q = {k: st.query_params.get(k) for k in ("kodas", "k", "lang", "m") if st.query_params.get(k)}
+    _src = "https://etesis.pages.dev/m/" + ("?" + _up.urlencode(_q) if _q else "")
+    st.markdown("<style>header,footer,[data-testid='stToolbar'],[data-testid='stDecoration']{display:none!important}</style>", unsafe_allow_html=True)
+    _cmp.html(
+        """<style>html,body{margin:0;background:#fff}</style>
+<iframe id="ets" src="%s" allow="camera; fullscreen" style="border:0;width:100%%;height:100%%;display:block"></iframe>
+<script>
+(function(){
+  var fe = window.frameElement, f = document.getElementById("ets"), P = window.parent;
+  function fit(){ try {
+    fe.style.cssText = "position:fixed;left:0;top:0;width:100vw;height:" + P.innerHeight + "px;border:0;z-index:999999;background:#fff";
+    document.body.style.height = P.innerHeight + "px";
+  } catch(e){} }
+  fit(); try { P.addEventListener("resize", fit); } catch(e){}
+  // programėlė praneša apie išėjimą iš testo pagrindiniam puslapiui – perduodam naujai svetainei
+  ["ets-hidden","ets-visible"].forEach(function(n){
+    try { P.addEventListener(n, function(){ f.contentWindow.postMessage({ ets: n }, "https://etesis.pages.dev"); }); } catch(e){}
+  });
+})();
+</script>""" % _src,
+        height=700,
+    )
+    st.stop()
+
 
 # ============================================================
 # ŠVARUS VAIZDAS MOKINIAMS
